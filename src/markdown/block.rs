@@ -93,14 +93,19 @@ impl BlockParseContext {
         }
     }
 
-    pub(crate) fn parse_lines(&mut self, lines: &[&str], gfm: bool, pedantic: bool) -> ast::Document {
+    pub(crate) fn parse_lines(
+        &mut self,
+        lines: &[&str],
+        gfm: bool,
+        pedantic: bool,
+    ) -> ast::Document {
         let mut i = 0usize;
         while i < lines.len() {
-            if should_skip_prescan_ref_definition(lines, i) {
+            if should_skip_prescan_ref_definition(lines, i, pedantic) {
                 i += 1;
                 continue;
             }
-            if let Some((id, def, consumed)) = prescan_reference_definition(lines, i) {
+            if let Some((id, def, consumed)) = prescan_reference_definition(lines, i, pedantic) {
                 self.refs.entry(id).or_insert(def);
                 i += consumed;
                 continue;
@@ -122,9 +127,10 @@ impl BlockParseContext {
     }
 }
 
+const FORCED_PARAGRAPH_PREFIX: char = '\u{001e}';
 const LAZY_QUOTE_PREFIX: char = '\u{001f}';
 
-fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize) -> bool {
+fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize, pedantic: bool) -> bool {
     if idx == 0 || idx >= lines.len() {
         return false;
     }
@@ -139,7 +145,7 @@ fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize) -> bool {
         return false;
     }
 
-    if prescan_reference_definition(lines, idx - 1).is_some() {
+    if prescan_reference_definition(lines, idx - 1, pedantic).is_some() {
         return false;
     }
 
@@ -147,7 +153,9 @@ fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize) -> bool {
     let (curr_indent, curr_text) = split_leading_ws(current);
     if let Some(prev_quote) = prev_text.strip_prefix('>') {
         let prev_quote = prev_quote.trim_start_matches([' ', '\t']);
-        if !prev_quote.trim().is_empty() && parse_reference_definition(prev_quote).is_none() {
+        if !prev_quote.trim().is_empty()
+            && parse_reference_definition(prev_quote, pedantic).is_none()
+        {
             if curr_text.starts_with('>') || curr_indent <= 3 {
                 return true;
             }
@@ -157,9 +165,7 @@ fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize) -> bool {
         return true;
     }
 
-    if parse_atx_heading(prev, false).is_some()
-        || parse_thematic_break(prev).is_some()
-    {
+    if parse_atx_heading(prev, false).is_some() || parse_thematic_break(prev).is_some() {
         return false;
     }
 
@@ -169,14 +175,15 @@ fn should_skip_prescan_ref_definition(lines: &[&str], idx: usize) -> bool {
 fn prescan_reference_definition(
     lines: &[&str],
     idx: usize,
+    pedantic: bool,
 ) -> Option<(String, ReferenceDefinition, usize)> {
-    if let Some(found) = parse_reference_definition_with_continuation(lines, idx) {
+    if let Some(found) = parse_reference_definition_with_continuation(lines, idx, pedantic) {
         return Some(found);
     }
 
     let current = lines.get(idx)?.trim_end_matches('\r');
     let stripped = current.strip_prefix('>')?.trim_start_matches([' ', '\t']);
-    let (id, def) = parse_reference_definition(stripped)?;
+    let (id, def) = parse_reference_definition(stripped, pedantic)?;
     Some((id, def, 1))
 }
 
@@ -225,7 +232,7 @@ fn parse_blocks_from_lines_mode(
 
         if allow_ref_defs {
             if let Some((id, def, consumed)) =
-                parse_reference_definition_with_continuation(lines, i)
+                parse_reference_definition_with_continuation(lines, i, pedantic)
             {
                 refs.entry(id).or_insert(def);
                 i += consumed;
@@ -247,7 +254,8 @@ fn parse_blocks_from_lines_mode(
             continue;
         }
 
-        if let Some((block, consumed)) = parse_setext_heading_block(&lines, i, gfm, pedantic, refs) {
+        if let Some((block, consumed)) = parse_setext_heading_block(&lines, i, gfm, pedantic, refs)
+        {
             blocks.push(block);
             i = consumed;
             continue;
@@ -260,7 +268,9 @@ fn parse_blocks_from_lines_mode(
             continue;
         }
 
-        if let Some((fenced, info, consumed, closed, fence_indent)) = parse_fenced_code_block(&lines, i) {
+        if let Some((fenced, info, consumed, closed, fence_indent)) =
+            parse_fenced_code_block(&lines, i)
+        {
             let content_end = if closed {
                 consumed.saturating_sub(1)
             } else {
@@ -373,8 +383,38 @@ fn parse_thematic_break(line: &str) -> Option<ast::Block> {
     None
 }
 
-fn split_table_cells(line: &str) -> Vec<&str> {
-    let mut cells = line.split('|').collect::<Vec<_>>();
+fn split_table_cells(line: &str) -> Vec<String> {
+    let bytes = line.as_bytes();
+    let mut cells = Vec::new();
+    let mut start = 0usize;
+    let mut i = 0usize;
+    let mut code_run_len = None;
+
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            let run_start = i;
+            while i < bytes.len() && bytes[i] == b'`' {
+                i += 1;
+            }
+            let run_len = i - run_start;
+            match code_run_len {
+                Some(open_len) if open_len == run_len => code_run_len = None,
+                None => code_run_len = Some(run_len),
+                _ => {}
+            }
+            continue;
+        }
+
+        if code_run_len.is_none() && bytes[i] == b'|' && !is_escaped_pipe(line, i) {
+            cells.push(line[start..i].to_string());
+            start = i + 1;
+        }
+
+        i += 1;
+    }
+
+    cells.push(line[start..].to_string());
+
     if cells.first().is_some_and(|col| col.trim().is_empty()) {
         cells.remove(0);
     }
@@ -382,6 +422,19 @@ fn split_table_cells(line: &str) -> Vec<&str> {
         cells.pop();
     }
     cells
+}
+
+fn is_escaped_pipe(line: &str, pipe_idx: usize) -> bool {
+    let bytes = line.as_bytes();
+    let mut idx = pipe_idx;
+    let mut backslashes = 0usize;
+
+    while idx > 0 && bytes[idx - 1] == b'\\' {
+        backslashes += 1;
+        idx -= 1;
+    }
+
+    backslashes % 2 == 1
 }
 
 fn parse_atx_heading(line: &str, pedantic: bool) -> Option<(u8, &str)> {
@@ -498,6 +551,10 @@ fn parse_setext_heading_block(
     pedantic: bool,
     refs: &mut HashMap<String, ReferenceDefinition>,
 ) -> Option<(ast::Block, usize)> {
+    if list_marker(strip_lazy_prefix(lines[start]).trim_start()).is_some() {
+        return None;
+    }
+
     let mut paragraph_lines = Vec::new();
     let mut i = start;
 
@@ -506,7 +563,7 @@ fn parse_setext_heading_block(
         if line.trim().is_empty() {
             return None;
         }
-        if parse_reference_definition(line).is_some() {
+        if parse_reference_definition(line, pedantic).is_some() {
             return None;
         }
         if parse_atx_heading(line, pedantic).is_some()
@@ -514,9 +571,10 @@ fn parse_setext_heading_block(
             || parse_fenced_code_block(lines, i).is_some()
             || parse_indented_code_block(lines, i).is_some()
             || (parse_list_block(lines, i, gfm, pedantic, refs).is_some()
-                && line_has_list_marker_with_content(line))
+                && list_interrupts_paragraph(line))
             || parse_blockquote_block(lines, i).is_some()
             || parse_table_block(lines, i, gfm, pedantic, refs).is_some()
+            || parse_html_block(lines, i).is_some()
         {
             return None;
         }
@@ -602,7 +660,7 @@ fn parse_indented_code_block(lines: &[&str], start: usize) -> Option<(String, us
 
     let mut i = start;
     while i + 1 < lines.len() {
-        if lines[i + 1].is_empty() {
+        if is_markdown_blank(lines[i + 1]) {
             i += 1;
             continue;
         }
@@ -629,7 +687,7 @@ fn is_indented_code_line(line: &str) -> bool {
 }
 
 fn strip_indentation(line: &str) -> String {
-    if line.is_empty() {
+    if is_markdown_blank(line) {
         return String::new();
     }
     let expanded = detab_leading_whitespace(line);
@@ -731,10 +789,6 @@ fn parse_list_block(
                 .take_while(|line| line.trim().is_empty())
                 .count();
             let content_end = item_end.saturating_sub(trailing_blank_lines);
-            let has_internal_blank = lines[i..content_end]
-                .iter()
-                .skip(1)
-                .any(|line| line.trim().is_empty());
             let blank_separates_same_list = trailing_blank_lines > 0
                 && next_line_continues_same_list(
                     lines,
@@ -757,8 +811,27 @@ fn parse_list_block(
                 .iter()
                 .filter(|child| matches!(child, ast::Block::Paragraph { .. }))
                 .count();
-            let loose_from_item = paragraph_count > 1
-                || (has_internal_blank && paragraph_count > 0 && item.children.len() > 1);
+            let only_nested_lists_after_first = item.children.len() > 1
+                && item
+                    .children
+                    .iter()
+                    .skip(1)
+                    .all(|child| matches!(child, ast::Block::List { .. }));
+            let loose_from_blank_break = paragraph_count > 0
+                && list_item_has_top_level_blank_break(
+                    &lines[i..content_end],
+                    content_indent,
+                    pedantic,
+                );
+            let loose_from_blank_indented_code = paragraph_count > 0
+                && list_item_has_top_level_blank_indented_code(
+                    &lines[i..content_end],
+                    content_indent,
+                    pedantic,
+                )
+                && !only_nested_lists_after_first;
+            let loose_from_item =
+                paragraph_count > 1 || loose_from_blank_break || loose_from_blank_indented_code;
             tight &= !blank_separates_same_list && !loose_from_item;
             items.push(item);
             i = item_end;
@@ -783,26 +856,49 @@ fn parse_list_item(
     refs: &mut HashMap<String, ReferenceDefinition>,
 ) -> ast::ListItem {
     let first = lines[0];
-    let (_, first_marker) = split_leading_ws(first);
-    let marker_end = list_marker(first_marker).map(|marker| marker.end).unwrap_or(1);
-    let (first_content_raw, _) =
-        strip_list_marker_padding_with_cols(&first_marker[marker_end..], marker_end);
+    let (first_indent, first_marker) = split_leading_ws(first);
+    let marker_end = list_marker(first_marker)
+        .map(|marker| marker.end)
+        .unwrap_or(1);
+    let first_content_raw =
+        strip_single_padding_marker(&first_marker[marker_end..], first_indent + marker_end);
     let (first_content, task) = if gfm {
-        parse_task_prefix(first_content_raw)
+        parse_task_prefix(&first_content_raw)
     } else {
-        (first_content_raw, None)
+        (first_content_raw.as_str(), None)
     };
+    let force_first_paragraph = task.is_some();
 
     let mut item_lines = Vec::new();
-    item_lines.push(first_content.to_string());
+    item_lines.push(if force_first_paragraph {
+        force_paragraph_line(first_content)
+    } else {
+        first_content.to_string()
+    });
     for raw in lines.iter().skip(1) {
-        item_lines.push(strip_leading_content_indent(raw, content_indent));
+        let (raw_indent, _) = split_leading_ws(raw);
+        let normalized = if pedantic {
+            normalize_pedantic_list_nesting(raw)
+        } else {
+            (*raw).to_string()
+        };
+        let (indent, text) = split_leading_ws(&normalized);
+        let stripped = strip_leading_content_indent(&normalized, content_indent);
+        let pedantic_nested_list =
+            pedantic && raw_indent > first_indent && list_marker(text).is_some();
+        if indent < content_indent && !text.is_empty() && !pedantic_nested_list {
+            item_lines.push(force_paragraph_line(&stripped));
+        } else {
+            item_lines.push(stripped);
+        }
     }
 
-    if let Some((id, def)) = parse_reference_definition(first_content) {
-        if item_lines.iter().skip(1).all(|line| line.trim().is_empty()) {
-            refs.entry(id).or_insert(def);
-            item_lines[0].clear();
+    if !force_first_paragraph {
+        if let Some((id, def)) = parse_reference_definition(first_content, pedantic) {
+            if item_lines.iter().skip(1).all(|line| line.trim().is_empty()) {
+                refs.entry(id).or_insert(def);
+                item_lines[0].clear();
+            }
         }
     }
 
@@ -812,10 +908,7 @@ fn parse_list_item(
         ast::Document::Nodes(nodes) => nodes,
     };
 
-    ast::ListItem {
-        children,
-        task,
-    }
+    ast::ListItem { children, task }
 }
 
 fn collect_list_item_with_content_indent(
@@ -832,6 +925,7 @@ fn collect_list_item_with_content_indent(
     let mut end = start + 1;
     let mut had_blank = false;
     let mut saw_blank = false;
+    let mut saw_item_content = has_initial_content;
 
     while i + 1 < lines.len() {
         let next = lines[i + 1];
@@ -843,7 +937,13 @@ fn collect_list_item_with_content_indent(
             continue;
         }
 
-        let (indent, text) = split_leading_ws(next);
+        let normalized_next = if pedantic {
+            normalize_pedantic_list_nesting(next)
+        } else {
+            next.to_string()
+        };
+        let (raw_indent, _) = split_leading_ws(next);
+        let (indent, text) = split_leading_ws(&normalized_next);
         if !has_initial_content && indent <= item_indent {
             break;
         }
@@ -856,25 +956,35 @@ fn collect_list_item_with_content_indent(
                 break;
             }
         }
-        if had_blank && indent <= item_indent && parse_reference_definition(text).is_some() {
+        if had_blank
+            && indent <= item_indent
+            && parse_reference_definition(text, pedantic).is_some()
+        {
+            break;
+        }
+        if had_blank && !saw_item_content && indent <= content_indent {
             break;
         }
         if had_blank
             && indent < content_indent
+            && !(pedantic && list_marker(text).is_some() && raw_indent > item_indent)
             && !(pedantic
                 && indent >= item_indent
                 && item_indent > 0
                 && item_indent == list_base_indent
                 && list_marker(text).is_none()
                 && !is_block_boundary_without_quote(Some(text), pedantic))
-            && !(text.trim_start().starts_with('>') && stripped_blockquote_content_indent(text) >= 4)
+            && !(text.trim_start().starts_with('>')
+                && stripped_blockquote_content_indent(text) >= 4)
         {
             break;
         }
 
         if indent <= item_indent
             && is_block_boundary_without_quote(Some(text), pedantic)
-            && !(text.trim_start().starts_with('>') && stripped_blockquote_content_indent(text) >= 4)
+            && !(pedantic && list_marker(text).is_some() && raw_indent > item_indent)
+            && !(text.trim_start().starts_with('>')
+                && stripped_blockquote_content_indent(text) >= 4)
         {
             break;
         }
@@ -883,6 +993,7 @@ fn collect_list_item_with_content_indent(
             && list_marker(text).is_some()
             && list_base_indent == 0
             && list_marker_indent_matches_level(list_base_indent, indent)
+            && !(pedantic && raw_indent > item_indent)
         {
             break;
         }
@@ -898,9 +1009,30 @@ fn collect_list_item_with_content_indent(
         i += 1;
         end = i + 1;
         had_blank = false;
+        saw_item_content = saw_item_content || !text.is_empty();
     }
 
     (end.min(lines.len()), saw_blank)
+}
+
+fn normalize_pedantic_list_nesting(line: &str) -> String {
+    let space_count = line.bytes().take_while(|b| *b == b' ').count();
+    if space_count == 0 || space_count == line.len() {
+        return line.to_string();
+    }
+    if line.as_bytes().get(space_count).copied() == Some(b'\t') {
+        return line.to_string();
+    }
+
+    let replaced = match space_count % 4 {
+        0 => 4,
+        rem => rem,
+    };
+    let normalized_spaces = space_count - replaced + 2;
+    let mut out = String::with_capacity(line.len() + 1);
+    out.push_str(&" ".repeat(normalized_spaces));
+    out.push_str(&line[space_count..]);
+    out
 }
 
 fn strip_list_marker_padding(rest: &str) -> &str {
@@ -967,6 +1099,79 @@ fn next_line_continues_same_list(
     )
 }
 
+fn list_item_has_top_level_blank_break(
+    lines: &[&str],
+    content_indent: usize,
+    pedantic: bool,
+) -> bool {
+    let mut saw_blank = false;
+
+    for raw in lines.iter().skip(1) {
+        if raw.trim().is_empty() {
+            saw_blank = true;
+            continue;
+        }
+        if !saw_blank {
+            continue;
+        }
+
+        let normalized = if pedantic {
+            normalize_pedantic_list_nesting(raw)
+        } else {
+            (*raw).to_string()
+        };
+        let dedented = strip_leading_content_indent(&normalized, content_indent);
+        let (indent, text) = split_leading_ws(&dedented);
+        if parse_reference_definition(text, pedantic).is_some()
+            || list_marker(text).is_some()
+            || text.trim_start().starts_with('>')
+            || parse_thematic_break(text).is_some()
+            || parse_atx_heading(text, pedantic).is_some()
+            || is_fenced_code_start(text)
+            || html_block_interrupts_paragraph(&[text], 0)
+            || indent == 0
+        {
+            return true;
+        }
+
+        saw_blank = false;
+    }
+
+    false
+}
+
+fn list_item_has_top_level_blank_indented_code(
+    lines: &[&str],
+    content_indent: usize,
+    pedantic: bool,
+) -> bool {
+    let mut saw_blank = false;
+
+    for raw in lines.iter().skip(1) {
+        if raw.trim().is_empty() {
+            saw_blank = true;
+            continue;
+        }
+        if !saw_blank {
+            continue;
+        }
+
+        let normalized = if pedantic {
+            normalize_pedantic_list_nesting(raw)
+        } else {
+            (*raw).to_string()
+        };
+        let dedented = strip_leading_content_indent(&normalized, content_indent);
+        if is_indented_code_line(&dedented) {
+            return true;
+        }
+
+        saw_blank = false;
+    }
+
+    false
+}
+
 fn list_marker_indent_matches_level(base_indent: usize, indent: usize) -> bool {
     if base_indent <= 3 {
         indent <= 3
@@ -992,40 +1197,20 @@ fn stripped_blockquote_content_indent(line: &str) -> usize {
 }
 
 fn strip_leading_content_indent(line: &str, content_indent: usize) -> String {
-    let mut byte_idx = 0usize;
-    let mut removed_cols = 0usize;
-    let mut leftover_cols = 0usize;
-
-    while byte_idx < line.len() && removed_cols < content_indent {
-        let ch = line.as_bytes()[byte_idx];
-        if ch == b' ' {
-            byte_idx += 1;
-            removed_cols += 1;
-            continue;
-        }
-        if ch == b'\t' {
-            let tab_cols = 4 - (removed_cols % 4);
-            byte_idx += 1;
-            if removed_cols + tab_cols > content_indent {
-                leftover_cols = removed_cols + tab_cols - content_indent;
-                break;
-            }
-            removed_cols += tab_cols;
-            continue;
-        }
-        break;
+    if line.is_empty() {
+        return String::new();
     }
 
-    if byte_idx == 0 && leftover_cols == 0 {
-        line.to_string()
-    } else {
-        let mut out = String::new();
-        if leftover_cols > 0 {
-            out.push_str(&" ".repeat(leftover_cols));
-        }
-        out.push_str(&line[byte_idx..]);
-        out
+    let (indent_cols, tail) = split_leading_ws(line);
+    if indent_cols == 0 {
+        return line.to_string();
     }
+
+    let residual_cols = indent_cols.saturating_sub(content_indent);
+    let mut out = String::with_capacity(residual_cols + tail.len());
+    out.push_str(&" ".repeat(residual_cols));
+    out.push_str(tail);
+    out
 }
 
 fn strip_code_fence_indent(line: &str, indent: usize) -> String {
@@ -1054,12 +1239,28 @@ fn strip_code_fence_indent(line: &str, indent: usize) -> String {
 }
 
 fn is_fenced_code_start(line: &str) -> bool {
+    parse_fence_run(line).is_some()
+}
+
+fn parse_fence_run(line: &str) -> Option<(u8, usize)> {
     let (indent, line) = split_leading_ws(line);
     if indent > 3 {
-        return false;
+        return None;
     }
     let trimmed = line.trim_start();
-    trimmed.starts_with("```") || trimmed.starts_with("~~~")
+    let bytes = trimmed.as_bytes();
+    let first = *bytes.first()?;
+    if first != b'`' && first != b'~' {
+        return None;
+    }
+    let mut len = 0usize;
+    while len < bytes.len() && bytes[len] == first {
+        len += 1;
+    }
+    if len < 3 {
+        return None;
+    }
+    Some((first, len))
 }
 
 fn is_fenced_code_close(line: &str, fence_char: u8, fence_len: usize) -> bool {
@@ -1111,6 +1312,40 @@ fn split_leading_ws(line: &str) -> (usize, &str) {
     }
 
     (cols, &line[byte_idx..])
+}
+
+fn split_leading_ws_from_column(line: &str, start_col: usize) -> (usize, &str) {
+    let mut byte_idx = 0usize;
+    let mut cols = start_col;
+
+    while byte_idx < line.len() {
+        match line.as_bytes()[byte_idx] {
+            b' ' => {
+                byte_idx += 1;
+                cols += 1;
+            }
+            b'\t' => {
+                byte_idx += 1;
+                cols += 4 - (cols % 4);
+            }
+            _ => break,
+        }
+    }
+
+    (cols.saturating_sub(start_col), &line[byte_idx..])
+}
+
+fn strip_single_padding_marker(rest: &str, start_col: usize) -> String {
+    if !matches!(rest.as_bytes().first().copied(), Some(b' ' | b'\t')) {
+        return rest.to_string();
+    }
+
+    let (indent_cols, tail) = split_leading_ws_from_column(rest, start_col);
+    let residual_cols = indent_cols.saturating_sub(1);
+    let mut out = String::with_capacity(residual_cols + tail.len());
+    out.push_str(&" ".repeat(residual_cols));
+    out.push_str(tail);
+    out
 }
 
 fn parse_task_prefix(text: &str) -> (&str, Option<bool>) {
@@ -1196,7 +1431,7 @@ fn list_marker(line: &str) -> Option<ListMarker> {
 }
 
 fn parse_blockquote_block(lines: &[&str], start: usize) -> Option<(usize, Vec<String>, usize)> {
-    let (indent, line) = split_leading_ws(lines[start]);
+    let (indent, line) = split_leading_ws(strip_lazy_prefix(lines[start]));
     if indent > 3 {
         return None;
     }
@@ -1206,20 +1441,36 @@ fn parse_blockquote_block(lines: &[&str], start: usize) -> Option<(usize, Vec<St
 
     let mut i = start;
     let mut out = Vec::new();
+    let mut can_lazy_continue = false;
+    let mut open_fence: Option<(u8, usize)> = None;
 
     while i < lines.len() {
-        let line = lines[i];
+        let line = strip_lazy_prefix(lines[i]);
         let (inner_indent, raw) = split_leading_ws(line);
         if inner_indent > 3 {
-            break;
+            if out.is_empty() || open_fence.is_some() || !can_lazy_continue {
+                break;
+            }
+            out.push(format!("{}{}", LAZY_QUOTE_PREFIX, raw));
+            i += 1;
+            continue;
         }
 
         if let Some(rest) = raw.strip_prefix('>') {
-            let rest = rest
-                .strip_prefix(' ')
-                .or_else(|| rest.strip_prefix('\t'))
-                .unwrap_or(rest);
-            out.push(rest.to_string());
+            let rest = strip_single_padding_marker(rest, inner_indent + 1);
+            if let Some((fence_char, fence_len)) = open_fence {
+                if is_fenced_code_close(&rest, fence_char, fence_len) {
+                    open_fence = None;
+                }
+            } else if let Some((fence_char, fence_len)) = parse_fence_run(&rest) {
+                open_fence = Some((fence_char, fence_len));
+            }
+            can_lazy_continue = open_fence.is_none()
+                && !rest.is_empty()
+                && !is_indented_code_line(&rest)
+                && (!is_block_boundary_without_quote(Some(&rest), false)
+                    || blockquote_content_allows_lazy_continuation(&rest));
+            out.push(rest);
             i += 1;
             continue;
         }
@@ -1234,10 +1485,15 @@ fn parse_blockquote_block(lines: &[&str], start: usize) -> Option<(usize, Vec<St
         if out.is_empty() {
             return None;
         }
-        if line.starts_with('\t') || line.starts_with("    ") {
+        if open_fence.is_some() || !can_lazy_continue {
             break;
         }
-        if is_blockquote_boundary(Some(raw), lines.get(i + 1).map(|l| l.trim_start())) {
+        if is_blockquote_boundary(
+            Some(raw),
+            lines
+                .get(i + 1)
+                .map(|line| strip_lazy_prefix(line).trim_start()),
+        ) {
             break;
         }
 
@@ -1246,6 +1502,27 @@ fn parse_blockquote_block(lines: &[&str], start: usize) -> Option<(usize, Vec<St
     }
 
     Some((0, out, i))
+}
+
+fn blockquote_content_allows_lazy_continuation(rest: &str) -> bool {
+    let (_, text) = split_leading_ws(rest);
+    let Some(marker) = list_marker(text) else {
+        return false;
+    };
+    let after_marker = text.get(marker.end..).unwrap_or("");
+    let (content, _) = strip_list_marker_padding_with_cols(after_marker, marker.end);
+    if content.is_empty() {
+        return false;
+    }
+
+    if let Some(nested_quote) = content.strip_prefix('>') {
+        let nested_quote = strip_single_padding_marker(nested_quote, marker.end + 1);
+        return !nested_quote.is_empty()
+            && !is_indented_code_line(&nested_quote)
+            && !is_block_boundary_without_quote(Some(&nested_quote), false);
+    }
+
+    !list_item_starts_with_block(content, false)
 }
 
 fn is_blockquote_boundary(current: Option<&str>, next: Option<&str>) -> bool {
@@ -1460,7 +1737,10 @@ fn consume_html_block_until_blank(lines: &[&str], start: usize) -> (ast::Block, 
     while end < lines.len() && !lines[end].trim().is_empty() {
         end += 1;
     }
-    (ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end)
+    (
+        ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+        end,
+    )
 }
 
 fn is_void_html_tag(tag_name: &str) -> bool {
@@ -1577,7 +1857,10 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
         if end < lines.len() {
             end += 1;
         }
-        return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+        return Some((
+            ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+            end,
+        ));
     }
 
     if line.starts_with("<?") {
@@ -1591,7 +1874,10 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
         if end < lines.len() {
             end += 1;
         }
-        return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+        return Some((
+            ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+            end,
+        ));
     }
 
     if line.starts_with("<![CDATA[") {
@@ -1605,10 +1891,18 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
         if end < lines.len() {
             end += 1;
         }
-        return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+        return Some((
+            ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+            end,
+        ));
     }
 
-    if line.starts_with("<!") && line.as_bytes().get(2).is_some_and(|b| b.is_ascii_uppercase()) {
+    if line.starts_with("<!")
+        && line
+            .as_bytes()
+            .get(2)
+            .is_some_and(|b| b.is_ascii_uppercase())
+    {
         let mut end = start + 1;
         if line.contains('>') {
             return Some((ast::Block::HtmlBlock(expand_tabs_html(lines[start])), end));
@@ -1619,7 +1913,10 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
         if end < lines.len() {
             end += 1;
         }
-        return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+        return Some((
+            ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+            end,
+        ));
     }
 
     if let Some(tag_name) = parse_closing_html_tag_name(line) {
@@ -1635,19 +1932,28 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
     if matches!(tag_name, "script" | "pre" | "style" | "textarea") {
         let close = format!("</{tag_name}>");
         if line.contains(&close) {
-            return Some((ast::Block::HtmlBlock(expand_tabs_html(lines[start])), start + 1));
+            return Some((
+                ast::Block::HtmlBlock(expand_tabs_html(lines[start])),
+                start + 1,
+            ));
         }
 
         let mut end = start + 1;
         while end < lines.len() {
             if lines[end].contains(&close) {
                 end += 1;
-                return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+                return Some((
+                    ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+                    end,
+                ));
             }
             end += 1;
         }
 
-        return Some((ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])), end));
+        return Some((
+            ast::Block::HtmlBlock(join_html_block_lines(&lines[start..end])),
+            end,
+        ));
     }
 
     if is_block_html_tag(tag_name) {
@@ -1766,7 +2072,14 @@ fn parse_table_block(
         break;
     }
 
-    Some((ast::Block::Table { aligns, header, rows }, i))
+    Some((
+        ast::Block::Table {
+            aligns,
+            header,
+            rows,
+        },
+        i,
+    ))
 }
 
 fn is_table_row(line: &str, columns: usize) -> bool {
@@ -1837,7 +2150,23 @@ fn parse_table_header(
     pedantic: bool,
     refs: &mut HashMap<String, ReferenceDefinition>,
 ) -> Option<Vec<Vec<Inline>>> {
-    parse_table_row(line, columns, gfm, pedantic, refs)
+    let (indent, text) = split_leading_ws(line);
+    if indent > 3 {
+        return None;
+    }
+
+    let parts = if text.contains('|') {
+        split_table_cells(text)
+    } else if columns == 1 {
+        vec![text.to_string()]
+    } else {
+        return None;
+    };
+    if parts.is_empty() || parts.len() != columns {
+        return None;
+    }
+
+    Some(parse_table_parts(&parts, columns, gfm, pedantic, refs))
 }
 
 fn parse_table_row(
@@ -1855,7 +2184,7 @@ fn parse_table_row(
     let parts = if text.contains('|') {
         split_table_cells(text)
     } else if columns == 1 {
-        vec![text]
+        vec![text.to_string()]
     } else {
         return None;
     };
@@ -1863,15 +2192,32 @@ fn parse_table_row(
         return None;
     }
 
+    Some(parse_table_parts(&parts, columns, gfm, pedantic, refs))
+}
+
+fn parse_table_parts(
+    parts: &[String],
+    columns: usize,
+    gfm: bool,
+    pedantic: bool,
+    refs: &mut HashMap<String, ReferenceDefinition>,
+) -> Vec<Vec<Inline>> {
     let mut row = parts
-            .iter()
-            .map(|cell| parse_block_inlines(cell.trim(), gfm, pedantic, refs))
-            .collect::<Vec<_>>();
+        .iter()
+        .map(|cell| {
+            let normalized = unescape_table_cell(cell);
+            parse_block_inlines(normalized.trim(), gfm, pedantic, refs)
+        })
+        .collect::<Vec<_>>();
     while row.len() < columns {
         row.push(Vec::new());
     }
     row.truncate(columns);
-    Some(row)
+    row
+}
+
+fn unescape_table_cell(cell: &str) -> String {
+    cell.replace("\\|", "|")
 }
 
 fn parse_table_tail_row(
@@ -1899,7 +2245,7 @@ fn parse_table_tail_row(
         || parse_indented_code_block(lines, index).is_some()
         || line_has_list_marker_with_content(text)
         || html_block_interrupts_paragraph(lines, index)
-        || parse_reference_definition(text).is_some()
+        || parse_reference_definition(text, pedantic).is_some()
     {
         return None;
     }
@@ -1922,13 +2268,14 @@ fn is_markdown_blank(line: &str) -> bool {
     line.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
 
-fn parse_reference_definition(line: &str) -> Option<(String, ReferenceDefinition)> {
-    parse_reference_definition_full(line)
+fn parse_reference_definition(line: &str, pedantic: bool) -> Option<(String, ReferenceDefinition)> {
+    parse_reference_definition_full(line, pedantic)
 }
 
 fn parse_reference_definition_with_continuation(
     lines: &[&str],
     start: usize,
+    pedantic: bool,
 ) -> Option<(String, ReferenceDefinition, usize)> {
     if start >= lines.len() {
         return None;
@@ -1941,8 +2288,14 @@ fn parse_reference_definition_with_continuation(
             break;
         }
 
+        // A following standalone definition starts a new entry; do not
+        // let pedantic title continuation swallow it into the current one.
+        if end > start && parse_reference_definition(lines[end], pedantic).is_some() {
+            break;
+        }
+
         let candidate = join_reference_definition_lines(lines, start, end);
-        if let Some((id, def)) = parse_reference_definition_full(&candidate) {
+        if let Some((id, def)) = parse_reference_definition_full(&candidate, pedantic) {
             best = Some((id, def, end - start + 1));
         }
 
@@ -1951,8 +2304,8 @@ fn parse_reference_definition_with_continuation(
     best
 }
 
-fn parse_ref_title(raw: &str) -> Option<String> {
-    let (title, consumed) = parse_ref_title_and_consumed(raw)?;
+fn parse_ref_title(raw: &str, pedantic: bool) -> Option<String> {
+    let (title, consumed) = parse_ref_title_and_consumed(raw, pedantic)?;
     if raw[consumed..].trim().is_empty() {
         Some(title)
     } else {
@@ -1960,7 +2313,10 @@ fn parse_ref_title(raw: &str) -> Option<String> {
     }
 }
 
-fn parse_reference_definition_full(raw: &str) -> Option<(String, ReferenceDefinition)> {
+fn parse_reference_definition_full(
+    raw: &str,
+    pedantic: bool,
+) -> Option<(String, ReferenceDefinition)> {
     if raw.contains("\n\n") || raw.contains("\r\n\r\n") {
         return None;
     }
@@ -1991,7 +2347,7 @@ fn parse_reference_definition_full(raw: &str) -> Option<(String, ReferenceDefini
         if !had_separator {
             return None;
         }
-        let (title, consumed) = parse_ref_title_and_consumed(remaining)?;
+        let (title, consumed) = parse_ref_title_and_consumed(remaining, pedantic)?;
         if !remaining[consumed..].trim().is_empty() {
             return None;
         }
@@ -2058,14 +2414,13 @@ fn parse_reference_destination(raw: &str) -> Option<(String, &str)> {
     Some((normalize_reference_destination(raw)?, ""))
 }
 
-fn parse_ref_title_and_consumed(raw: &str) -> Option<(String, usize)> {
+fn parse_ref_title_and_consumed(raw: &str, pedantic: bool) -> Option<(String, usize)> {
     let raw = raw.trim_start();
     if raw.is_empty() {
         return None;
     }
     let chars = raw.chars().collect::<Vec<_>>();
-    let quote_end = if chars.first().copied() == Some('"') || chars.first().copied() == Some('\'')
-    {
+    let quote_end = if chars.first().copied() == Some('"') || chars.first().copied() == Some('\'') {
         chars[0]
     } else if chars.first().copied() == Some('(') {
         ')'
@@ -2073,6 +2428,20 @@ fn parse_ref_title_and_consumed(raw: &str) -> Option<(String, usize)> {
         return None;
     };
 
+    let end = if pedantic && matches!(chars.first().copied(), Some('"' | '\'')) {
+        find_last_unescaped_reference_title_close(&chars, quote_end)?
+    } else {
+        find_first_unescaped_reference_title_close(&chars, quote_end)?
+    };
+
+    let title = decode_html_entities(&unescape_reference_text(
+        &chars[1..end].iter().collect::<String>(),
+    ));
+    let consumed = chars[..=end].iter().collect::<String>().len();
+    Some((title, consumed))
+}
+
+fn find_first_unescaped_reference_title_close(chars: &[char], quote_end: char) -> Option<usize> {
     let mut end = 1usize;
     while end < chars.len() {
         if chars[end] == '\\' && end + 1 < chars.len() {
@@ -2080,16 +2449,27 @@ fn parse_ref_title_and_consumed(raw: &str) -> Option<(String, usize)> {
             continue;
         }
         if chars[end] == quote_end {
-            let title = decode_html_entities(&unescape_reference_text(
-                &chars[1..end].iter().collect::<String>(),
-            ));
-            let consumed = chars[..=end].iter().collect::<String>().len();
-            return Some((title, consumed));
+            return Some(end);
         }
         end += 1;
     }
-
     None
+}
+
+fn find_last_unescaped_reference_title_close(chars: &[char], quote_end: char) -> Option<usize> {
+    let mut candidate = None;
+    let mut end = 1usize;
+    while end < chars.len() {
+        if chars[end] == '\\' && end + 1 < chars.len() {
+            end += 2;
+            continue;
+        }
+        if chars[end] == quote_end {
+            candidate = Some(end);
+        }
+        end += 1;
+    }
+    candidate
 }
 
 pub(crate) fn normalize_reference_destination(raw: &str) -> Option<String> {
@@ -2175,10 +2555,19 @@ pub(crate) fn parse_html_entity(raw: &str) -> Option<(String, usize)> {
 }
 
 fn decode_entity(entity: &str) -> Option<String> {
-    if let Some(hex) = entity.strip_prefix("#x").or_else(|| entity.strip_prefix("#X")) {
+    if let Some(hex) = entity
+        .strip_prefix("#x")
+        .or_else(|| entity.strip_prefix("#X"))
+    {
+        if hex.is_empty() || hex.len() > 6 {
+            return None;
+        }
         return Some(decode_numeric_entity(u32::from_str_radix(hex, 16).ok()?));
     }
     if let Some(dec) = entity.strip_prefix('#') {
+        if dec.is_empty() || dec.len() > 7 {
+            return None;
+        }
         return Some(decode_numeric_entity(dec.parse::<u32>().ok()?));
     }
 
@@ -2278,7 +2667,10 @@ fn parse_paragraph(
         if raw_line.trim().is_empty() {
             break;
         }
-        if allow_ref_defs && acc.is_empty() && parse_reference_definition(raw_line).is_some() {
+        if allow_ref_defs
+            && acc.is_empty()
+            && parse_reference_definition(raw_line, pedantic).is_some()
+        {
             break;
         }
 
@@ -2286,7 +2678,7 @@ fn parse_paragraph(
             || parse_thematic_break(raw_line).is_some()
             || parse_fenced_code_block(lines, i).is_some()
             || (parse_list_block(lines, i, gfm, pedantic, refs).is_some()
-                && line_has_list_marker_with_content(raw_line))
+                && list_interrupts_paragraph(raw_line))
             || parse_blockquote_block(lines, i).is_some()
             || parse_table_block(lines, i, gfm, pedantic, refs).is_some()
             || html_block_interrupts_paragraph(lines, i)
@@ -2314,12 +2706,17 @@ fn parse_paragraph(
 
     if acc.is_empty() {
         if i == start {
-            return (parse_block_inlines(lines[start], gfm, pedantic, refs), start + 1);
+            return (
+                parse_block_inlines(lines[start], gfm, pedantic, refs),
+                start + 1,
+            );
         }
-        return (parse_block_inlines(&acc, gfm, pedantic, refs), i);
+        let trimmed = acc.trim_end_matches([' ', '\t']).to_string();
+        return (parse_block_inlines(&trimmed, gfm, pedantic, refs), i);
     }
 
-    (parse_block_inlines(&acc, gfm, pedantic, refs), i)
+    let trimmed = acc.trim_end_matches([' ', '\t']).to_string();
+    (parse_block_inlines(&trimmed, gfm, pedantic, refs), i)
 }
 
 fn html_block_interrupts_paragraph(lines: &[&str], i: usize) -> bool {
@@ -2338,7 +2735,11 @@ fn html_block_interrupts_paragraph(lines: &[&str], i: usize) -> bool {
     if line.starts_with("<!--")
         || line.starts_with("<?")
         || line.starts_with("<![CDATA[")
-        || line.starts_with("<!") && line.as_bytes().get(2).is_some_and(|b| b.is_ascii_uppercase())
+        || line.starts_with("<!")
+            && line
+                .as_bytes()
+                .get(2)
+                .is_some_and(|b| b.is_ascii_uppercase())
     {
         return true;
     }
@@ -2356,7 +2757,7 @@ fn html_block_interrupts_paragraph(lines: &[&str], i: usize) -> bool {
 }
 
 fn normalize_paragraph_indent(line: &str) -> &str {
-    trim_paragraph_line(line)
+    trim_paragraph_line(strip_forced_paragraph_prefix(line))
 }
 
 fn trim_setext_heading_line(line: &str) -> &str {
@@ -2364,17 +2765,7 @@ fn trim_setext_heading_line(line: &str) -> &str {
 }
 
 fn trim_paragraph_line(line: &str) -> &str {
-    if let Some(rest) = line.strip_prefix('\t') {
-        return rest;
-    }
-
-    let spaces = line.bytes().take_while(|b| *b == b' ').count();
-    if spaces > 0 {
-        let strip = spaces.min(4);
-        return &line[strip..];
-    }
-
-    line
+    line.trim_start_matches([' ', '\t'])
 }
 
 fn parse_block_inlines(
@@ -2386,9 +2777,21 @@ fn parse_block_inlines(
     let normalized = line
         .lines()
         .map(strip_lazy_prefix)
+        .map(strip_forced_paragraph_prefix)
         .collect::<Vec<_>>()
         .join("\n");
     crate::markdown::inline::InlineParser::with_refs(&normalized, gfm, pedantic, refs).parse()
+}
+
+fn force_paragraph_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len() + FORCED_PARAGRAPH_PREFIX.len_utf8());
+    out.push(FORCED_PARAGRAPH_PREFIX);
+    out.push_str(line);
+    out
+}
+
+fn strip_forced_paragraph_prefix(line: &str) -> &str {
+    line.strip_prefix(FORCED_PARAGRAPH_PREFIX).unwrap_or(line)
 }
 
 fn strip_lazy_prefix(line: &str) -> &str {
@@ -2405,4 +2808,15 @@ fn line_has_list_marker_with_content(line: &str) -> bool {
         return !rest.trim_start().is_empty();
     }
     true
+}
+
+fn list_interrupts_paragraph(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let Some(marker) = list_marker(trimmed) else {
+        return false;
+    };
+    if marker.ordered && marker.start != 1 {
+        return false;
+    }
+    line_has_list_marker_with_content(trimmed)
 }

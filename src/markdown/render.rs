@@ -1,7 +1,22 @@
 use std::fmt::Write as _;
 
 use crate::RenderOptions;
-use crate::markdown::ast::{self, inline::Inline};
+use crate::markdown::{
+    ast::{self, inline::Inline},
+    block::parse_html_entity,
+};
+
+#[derive(Clone, Copy)]
+struct HtmlTextAtom {
+    raw_start: usize,
+    raw_end: usize,
+    ch: char,
+}
+
+struct AutolinkCandidate {
+    end: usize,
+    href: String,
+}
 
 pub(crate) fn render_document(doc: &ast::Document, options: RenderOptions) -> String {
     let mut out = String::new();
@@ -47,22 +62,9 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
                 out.push_str("<li>");
                 let children = &item.children;
                 if *tight {
-                    if let Some(ast::Block::Paragraph { inlines }) = children.first() {
-                        if let Some(done) = item.task {
-                            render_task_checkbox(done, out);
-                        }
-                        render_inlines(inlines, out, options);
-                        if children.len() == 1 {
-                            out.push_str("</li>");
-                            continue;
-                        }
-                        render_tight_list_separator(&children[1], out);
-                        for child in &children[1..] {
-                            render_block(child, out, options);
-                        }
-                        out.push_str("</li>");
-                        continue;
-                    }
+                    render_tight_list_item(children, item.task, out, options);
+                    out.push_str("</li>");
+                    continue;
                 }
 
                 let mut rendered_task_paragraph = false;
@@ -80,7 +82,7 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
                         out.push_str("<p>");
                         render_task_checkbox(done, out);
                         out.push(' ');
-                        out.push_str(raw);
+                        render_raw_html(raw, out, options);
                         out.push_str("</p>\n");
                         rendered_task_paragraph = true;
                     } else {
@@ -115,10 +117,14 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
             content,
             fenced: _,
         } => {
-            if let Some(language) = info.as_deref() {
+            if let Some(language) = info
+                .as_deref()
+                .and_then(extract_code_block_language)
+                .map(unescape_code_block_language)
+            {
                 if !language.is_empty() {
                     out.push_str("<pre><code class=\"language-");
-                    out.push_str(&escape_html(language));
+                    out.push_str(&escape_html(&language));
                     out.push_str("\">");
                     out.push_str(&escape_html(content));
                     out.push_str("</code></pre>\n");
@@ -145,22 +151,26 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
                 render_inlines(cell, out, options);
                 out.push_str("</th>");
             }
-            out.push_str("</tr></thead><tbody>");
-            for row in rows {
-                out.push_str("<tr>");
-                for (idx, cell) in row.iter().enumerate() {
-                    out.push_str("<td");
-                    render_table_align_attr(aligns.get(idx).copied().flatten(), out);
-                    out.push('>');
-                    render_inlines(cell, out, options);
-                    out.push_str("</td>");
+            out.push_str("</tr></thead>");
+            if !rows.is_empty() {
+                out.push_str("<tbody>");
+                for row in rows {
+                    out.push_str("<tr>");
+                    for (idx, cell) in row.iter().enumerate() {
+                        out.push_str("<td");
+                        render_table_align_attr(aligns.get(idx).copied().flatten(), out);
+                        out.push('>');
+                        render_inlines(cell, out, options);
+                        out.push_str("</td>");
+                    }
+                    out.push_str("</tr>");
                 }
-                out.push_str("</tr>");
+                out.push_str("</tbody>");
             }
-            out.push_str("</tbody></table>\n");
+            out.push_str("</table>\n");
         }
         ast::Block::HtmlBlock(raw) => {
-            out.push_str(raw);
+            render_raw_html(raw, out, options);
             out.push('\n');
         }
     }
@@ -174,10 +184,39 @@ fn render_task_checkbox(done: bool, out: &mut String) {
     out.push_str(" disabled=\"\">");
 }
 
-fn render_tight_list_separator(next_child: &ast::Block, out: &mut String) {
-    match next_child {
-        ast::Block::Heading { .. } => out.push(' '),
-        _ => out.push('\n'),
+fn render_tight_list_item(
+    children: &[ast::Block],
+    task: Option<bool>,
+    out: &mut String,
+    options: RenderOptions,
+) {
+    for (idx, child) in children.iter().enumerate() {
+        if idx > 0 {
+            render_tight_list_separator(&children[idx - 1], child, out);
+        }
+
+        match child {
+            ast::Block::Paragraph { inlines } => {
+                if idx == 0 {
+                    if let Some(done) = task {
+                        render_task_checkbox(done, out);
+                        if !inlines.is_empty() {
+                            out.push(' ');
+                        }
+                    }
+                }
+                render_inlines(inlines, out, options);
+            }
+            _ => render_block(child, out, options),
+        }
+    }
+}
+
+fn render_tight_list_separator(prev_child: &ast::Block, next_child: &ast::Block, out: &mut String) {
+    match (prev_child, next_child) {
+        (ast::Block::Paragraph { .. }, ast::Block::Heading { .. }) => out.push(' '),
+        (ast::Block::Paragraph { .. }, _) => out.push('\n'),
+        _ => {}
     }
 }
 
@@ -185,7 +224,7 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
     for inline in inlines {
         match inline {
             Inline::Text(text) => out.push_str(&escape_html(text)),
-            Inline::RawHtml(html) => out.push_str(html),
+            Inline::RawHtml(html) => render_raw_html(html, out, options),
             Inline::SoftBreak => {
                 if options.breaks {
                     out.push_str("<br>\n");
@@ -244,6 +283,14 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
     }
 }
 
+fn render_raw_html(raw: &str, out: &mut String, options: RenderOptions) {
+    if options.gfm {
+        out.push_str(&escape_disallowed_raw_html(raw));
+        return;
+    }
+    out.push_str(raw);
+}
+
 fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
@@ -255,6 +302,32 @@ fn escape_html(text: &str) -> String {
             _ => out.push(ch),
         }
     }
+    out
+}
+
+fn extract_code_block_language(info: &str) -> Option<&str> {
+    info.split_whitespace().next()
+}
+
+fn unescape_code_block_language(language: &str) -> String {
+    let mut out = String::with_capacity(language.len());
+    let mut chars = language.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                if next.is_ascii_punctuation() {
+                    out.push(next);
+                } else {
+                    out.push('\\');
+                    out.push(next);
+                }
+                continue;
+            }
+        }
+        out.push(ch);
+    }
+
     out
 }
 
@@ -354,73 +427,375 @@ fn should_skip_autolink(stack: &[String]) -> bool {
 }
 
 fn autolink_text_segment(text: &str) -> String {
-    use linkify::{LinkFinder, LinkKind};
-
-    let mut finder = LinkFinder::new();
-    finder.kinds(&[LinkKind::Url, LinkKind::Email]);
-    finder.url_must_have_scheme(false);
-
+    let atoms = html_text_atoms(text);
     let mut out = String::with_capacity(text.len());
-    let mut last = 0usize;
+    let mut last_raw = 0usize;
+    let mut i = 0usize;
 
-    for link in finder.links(text) {
-        let start = link.start();
-        let end = link.end();
-        out.push_str(&text[last..start]);
+    while i < atoms.len() {
+        let Some(candidate) = parse_autolink_candidate(&atoms, i) else {
+            i += 1;
+            continue;
+        };
 
-        let mut linked_text = text[start..end].to_string();
-        if linked_text.ends_with('\"') || linked_text.ends_with('\'') {
-            linked_text.pop();
-        }
-
-        match link.kind() {
-            LinkKind::Url => {
-                if is_non_marked_bare_url(&linked_text) {
-                    out.push_str(&linked_text);
-                } else {
-                    let href = if has_scheme(&linked_text) {
-                        linked_text.to_string()
-                    } else {
-                        format!("http://{linked_text}")
-                    };
-                    out.push_str("<a href=\"");
-                    out.push_str(&escape_href_attr(&href));
-                    out.push_str("\">");
-                    out.push_str(&linked_text);
-                    out.push_str("</a>");
-                }
-            }
-            LinkKind::Email => {
-                out.push_str("<a href=\"mailto:");
-                out.push_str(&escape_href_attr(&linked_text));
-                out.push_str("\">");
-                out.push_str(&linked_text);
-                out.push_str("</a>");
-            }
-            _ => out.push_str(&linked_text),
-        }
-
-        last = end;
+        let raw_start = atoms[i].raw_start;
+        let raw_end = atoms[candidate.end - 1].raw_end;
+        out.push_str(&text[last_raw..raw_start]);
+        out.push_str("<a href=\"");
+        out.push_str(&escape_href_attr(&candidate.href));
+        out.push_str("\">");
+        out.push_str(&text[raw_start..raw_end]);
+        out.push_str("</a>");
+        last_raw = raw_end;
+        i = candidate.end;
     }
 
-    out.push_str(&text[last..]);
+    out.push_str(&text[last_raw..]);
     out
 }
 
-fn has_scheme(text: &str) -> bool {
-    text.split_once("://").is_some_and(|(scheme, _)| {
-        !scheme.is_empty()
-            && scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+fn html_text_atoms(text: &str) -> Vec<HtmlTextAtom> {
+    let mut atoms = Vec::with_capacity(text.len());
+    let mut i = 0usize;
+
+    while i < text.len() {
+        let tail = &text[i..];
+        if let Some((decoded, consumed)) = parse_html_entity(tail) {
+            let raw_end = i + consumed;
+            for ch in decoded.chars() {
+                atoms.push(HtmlTextAtom {
+                    raw_start: i,
+                    raw_end,
+                    ch,
+                });
+            }
+            i = raw_end;
+            continue;
+        }
+
+        let Some(ch) = tail.chars().next() else {
+            break;
+        };
+        let raw_end = i + ch.len_utf8();
+        atoms.push(HtmlTextAtom {
+            raw_start: i,
+            raw_end,
+            ch,
+        });
+        i = raw_end;
+    }
+
+    atoms
+}
+
+fn parse_autolink_candidate(atoms: &[HtmlTextAtom], start: usize) -> Option<AutolinkCandidate> {
+    if !autolink_start_boundary(atoms, start) {
+        return None;
+    }
+
+    parse_url_candidate(atoms, start).or_else(|| parse_email_candidate(atoms, start))
+}
+
+fn autolink_start_boundary(atoms: &[HtmlTextAtom], start: usize) -> bool {
+    if start == 0 {
+        return true;
+    }
+    !matches!(
+        atoms[start - 1].ch,
+        'a'..='z' | 'A'..='Z' | '0'..='9' | '@' | '.' | '_' | '-' | '/' | ':'
+    )
+}
+
+fn parse_url_candidate(atoms: &[HtmlTextAtom], start: usize) -> Option<AutolinkCandidate> {
+    if starts_with_www(atoms, start) {
+        let end = trim_generic_url_end(atoms, start, scan_url_end(atoms, start));
+        if end <= start + 4 {
+            return None;
+        }
+        return Some(AutolinkCandidate {
+            end,
+            href: format!("http://{}", collect_decoded(atoms, start, end)),
+        });
+    }
+
+    let (scheme_end, scheme) = parse_scheme_prefix(atoms, start)?;
+    if scheme_end >= atoms.len() || atoms[scheme_end].ch.is_whitespace() {
+        return None;
+    }
+
+    if scheme.eq_ignore_ascii_case("mailto") || scheme.eq_ignore_ascii_case("xmpp") {
+        return parse_emailish_scheme_candidate(atoms, start, scheme_end + 1, &scheme);
+    }
+
+    let end = trim_generic_url_end(atoms, start, scan_url_end(atoms, start));
+    if end <= scheme_end + 1 {
+        return None;
+    }
+
+    Some(AutolinkCandidate {
+        end,
+        href: collect_decoded(atoms, start, end),
     })
 }
 
-fn is_non_marked_bare_url(text: &str) -> bool {
-    if has_scheme(text) {
+fn parse_emailish_scheme_candidate(
+    atoms: &[HtmlTextAtom],
+    start: usize,
+    body_start: usize,
+    scheme: &str,
+) -> Option<AutolinkCandidate> {
+    let email_end = parse_email_body(atoms, body_start)?;
+    let mut end = email_end;
+
+    if scheme.eq_ignore_ascii_case("xmpp") && end < atoms.len() && atoms[end].ch == '/' {
+        let mut path_end = end + 1;
+        while path_end < atoms.len() && is_email_path_char(atoms[path_end].ch) {
+            path_end += 1;
+        }
+        if path_end > end + 1 {
+            end = path_end;
+        }
+    }
+
+    if matches!(atoms.get(end).map(|atom| atom.ch), Some('-' | '_')) {
+        return None;
+    }
+
+    Some(AutolinkCandidate {
+        end,
+        href: collect_decoded(atoms, start, end),
+    })
+}
+
+fn parse_email_candidate(atoms: &[HtmlTextAtom], start: usize) -> Option<AutolinkCandidate> {
+    let end = parse_email_body(atoms, start)?;
+    if matches!(atoms.get(end).map(|atom| atom.ch), Some('-' | '_')) {
+        return None;
+    }
+
+    Some(AutolinkCandidate {
+        end,
+        href: format!("mailto:{}", collect_decoded(atoms, start, end)),
+    })
+}
+
+fn parse_email_body(atoms: &[HtmlTextAtom], start: usize) -> Option<usize> {
+    let mut i = start;
+    while i < atoms.len() && is_email_local_char(atoms[i].ch) {
+        i += 1;
+    }
+    if i == start || i >= atoms.len() || atoms[i].ch != '@' {
+        return None;
+    }
+    i += 1;
+
+    let mut labels = 0usize;
+    loop {
+        let label_start = i;
+        while i < atoms.len() && is_domain_label_char(atoms[i].ch) {
+            i += 1;
+        }
+        if i == label_start {
+            return None;
+        }
+        if atoms[label_start].ch == '-' || atoms[i - 1].ch == '-' {
+            return None;
+        }
+        labels += 1;
+        if i < atoms.len() && atoms[i].ch == '.' {
+            if i + 1 >= atoms.len() || !is_domain_label_char(atoms[i + 1].ch) {
+                break;
+            }
+            i += 1;
+            continue;
+        }
+        break;
+    }
+
+    if labels < 2 {
+        return None;
+    }
+
+    Some(i)
+}
+
+fn starts_with_www(atoms: &[HtmlTextAtom], start: usize) -> bool {
+    matches!(
+        (
+            atoms.get(start).map(|atom| atom.ch),
+            atoms.get(start + 1).map(|atom| atom.ch),
+            atoms.get(start + 2).map(|atom| atom.ch),
+            atoms.get(start + 3).map(|atom| atom.ch),
+        ),
+        (Some('w'), Some('w'), Some('w'), Some('.'))
+    )
+}
+
+fn parse_scheme_prefix(atoms: &[HtmlTextAtom], start: usize) -> Option<(usize, String)> {
+    let first = atoms.get(start)?.ch;
+    if !first.is_ascii_alphabetic() {
+        return None;
+    }
+
+    let mut i = start + 1;
+    while i < atoms.len()
+        && (atoms[i].ch.is_ascii_alphanumeric() || matches!(atoms[i].ch, '+' | '-' | '.'))
+    {
+        i += 1;
+    }
+    if i >= atoms.len() || atoms[i].ch != ':' {
+        return None;
+    }
+
+    let len = i - start;
+    if !(2..=32).contains(&len) {
+        return None;
+    }
+
+    Some((i, collect_decoded(atoms, start, i)))
+}
+
+fn scan_url_end(atoms: &[HtmlTextAtom], start: usize) -> usize {
+    let mut end = start;
+    while end < atoms.len() {
+        let ch = atoms[end].ch;
+        if ch.is_whitespace() || ch == '<' {
+            break;
+        }
+        end += 1;
+    }
+    end
+}
+
+fn trim_generic_url_end(atoms: &[HtmlTextAtom], start: usize, mut end: usize) -> usize {
+    loop {
+        if end <= start {
+            return end;
+        }
+
+        let last = atoms[end - 1].ch;
+        let mut trimmed = false;
+
+        if matches!(last, '.' | ',' | ':' | '!' | '?' | '"' | '\'') {
+            end -= 1;
+            trimmed = true;
+        } else if last == ';' {
+            if let Some(entity_start) = entity_like_suffix_start(atoms, start, end) {
+                end = entity_start;
+            } else {
+                end -= 1;
+            }
+            trimmed = true;
+        } else if last == ')' && unmatched_closing_parens(atoms, start, end) > 0 {
+            end -= 1;
+            trimmed = true;
+        }
+
+        if !trimmed {
+            break;
+        }
+    }
+
+    end
+}
+
+fn entity_like_suffix_start(atoms: &[HtmlTextAtom], start: usize, end: usize) -> Option<usize> {
+    if end <= start || atoms[end - 1].ch != ';' {
+        return None;
+    }
+
+    let mut i = end - 1;
+    while i > start && atoms[i - 1].ch.is_ascii_alphanumeric() {
+        i -= 1;
+    }
+    if i > start && atoms[i - 1].ch == '&' && i < end - 1 {
+        return Some(i - 1);
+    }
+    None
+}
+
+fn unmatched_closing_parens(atoms: &[HtmlTextAtom], start: usize, end: usize) -> usize {
+    let opens = atoms[start..end]
+        .iter()
+        .filter(|atom| atom.ch == '(')
+        .count();
+    let closes = atoms[start..end]
+        .iter()
+        .filter(|atom| atom.ch == ')')
+        .count();
+    closes.saturating_sub(opens)
+}
+
+fn collect_decoded(atoms: &[HtmlTextAtom], start: usize, end: usize) -> String {
+    atoms[start..end].iter().map(|atom| atom.ch).collect()
+}
+
+fn is_email_local_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '+' | '-')
+}
+
+fn is_domain_label_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '-'
+}
+
+fn is_email_path_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '+' | '-' | '@')
+}
+
+fn escape_disallowed_raw_html(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut i = 0usize;
+
+    while i < raw.len() {
+        let tail = &raw[i..];
+        let Some(offset) = tail.find('<') else {
+            out.push_str(tail);
+            break;
+        };
+        out.push_str(&tail[..offset]);
+        i += offset;
+
+        let Some(tag_end_offset) = raw[i..].find('>') else {
+            out.push_str(&raw[i..]);
+            break;
+        };
+        let tag_end = i + tag_end_offset + 1;
+        let tag = &raw[i..tag_end];
+
+        if is_disallowed_raw_html_tag(tag) {
+            out.push_str("&lt;");
+            out.push_str(&tag['<'.len_utf8()..]);
+        } else {
+            out.push_str(tag);
+        }
+        i = tag_end;
+    }
+
+    out
+}
+
+fn is_disallowed_raw_html_tag(tag: &str) -> bool {
+    let trimmed = tag.trim();
+    if !trimmed.starts_with('<') {
         return false;
     }
-    !text.starts_with("www.")
+
+    let Some(name) = parse_tag_name(trimmed.trim_start_matches('<').trim_end_matches('>')) else {
+        return false;
+    };
+
+    matches!(
+        name.as_str(),
+        "title"
+            | "textarea"
+            | "style"
+            | "xmp"
+            | "iframe"
+            | "noembed"
+            | "noframes"
+            | "script"
+            | "plaintext"
+    )
 }
 
 fn is_void_tag(name: &str) -> bool {

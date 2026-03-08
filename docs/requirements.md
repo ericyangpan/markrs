@@ -14,13 +14,15 @@ Last updated: 2026-03-05
 - Build the parser from scratch in Rust and make it the default parsing core.
 - Keep passing:
   - markrs own test suite
-  - marked compatibility suite (with shrinking `tests/compat/xfail.yaml`)
+  - marked snapshot compatibility suite (with shrinking `tests/compat/xfail.yaml`)
+  - current marked runtime compatibility suite (with shrinking `tests/compat/runtime_xfail.yaml`)
 
 Acceptance criteria:
 
 - `Cargo.toml` no longer depends on `pulldown-cmark`.
 - The new Rust parser is used by `render_markdown_to_html`.
 - `npm run test:own` and `npm run test:compat` pass in CI.
+- `npm run test:compat` aggregates both `test:compat:snapshot` and `test:compat:runtime`.
 
 Implementation plan:
 

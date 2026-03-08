@@ -255,7 +255,7 @@ Guardrail:
 ### 13.1 Existing gates
 
 - `tests/own_rendering.rs`
-- `tests/compat_marked.rs`
+- `tests/compat_snapshot.rs`
 
 ### 13.2 New parser-focused tests
 

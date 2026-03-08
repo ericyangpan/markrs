@@ -8,7 +8,10 @@ use crate::{
     },
 };
 
-pub(crate) fn parse_document(input: &str, options: RenderOptions) -> crate::markdown::ast::Document {
+pub(crate) fn parse_document(
+    input: &str,
+    options: RenderOptions,
+) -> crate::markdown::ast::Document {
     let parser_options = ParserOptions::from(options);
     let source = Source::new(input);
     if source.is_empty() {

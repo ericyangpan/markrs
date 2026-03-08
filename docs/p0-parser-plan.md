@@ -530,6 +530,111 @@ Status update (2026-03-07, E13 pedantic-heading batch complete):
   - code-block trailing-newline mismatches such as `code_block_no_ending_newline`, `paragraph-after-list-item`, `indented_details`, and `fences_breaking_paragraphs`
   - pedantic list alignment in `list_align_pedantic`
 
+Status update (2026-03-07, E14 table cell and header validation batch complete):
+
+- compat baseline moved from `103` to `98`
+- completed in this batch:
+  - table cell splitting is now aware of escaped pipes and backtick code spans, so `\|` and `` `|` `` no longer break GFM table cell boundaries
+  - table headers now require an exact column-count match with the delimiter row instead of truncating mismatched headers into a table
+  - header-only tables now omit an empty `<tbody>`, matching marked's HTML shape
+- promoted regressions now enforced and passing:
+  - `new/table_cells`
+  - `test/specs/gfm/gfm.0.29.json#example-3`
+  - `test/specs/gfm/gfm.0.29.json#example-6`
+  - `test/specs/gfm/gfm.0.29.json#example-8`
+- notable recovered cases:
+  - `new/table_cells`
+  - `new/tab_newline`
+  - `test/specs/gfm/gfm.0.29.json#example-3`
+  - `test/specs/gfm/gfm.0.29.json#example-6`
+  - `test/specs/gfm/gfm.0.29.json#example-8`
+- remaining high-yield work after this batch:
+  - html/setext interruption edges such as `setext_no_blankline`
+  - residual table/block paragraph tails such as `indented_tables`
+  - code-block/list boundary cases such as `paragraph-after-list-item` and `fences_breaking_paragraphs`
+
+Status update (2026-03-07, E15 html-vs-setext interruption batch complete):
+
+- compat baseline moved from `98` to `97`
+- completed in this batch:
+  - setext heading collection now bails out when the current line is already a block-HTML opener, so `<html>\n=` stays an HTML block instead of turning into a heading
+- promoted regressions now enforced and passing:
+  - `new/setext_no_blankline`
+- notable recovered cases:
+  - `new/setext_no_blankline`
+- remaining high-yield work after this batch:
+  - residual block parser gaps in `indented_tables`, `paragraph-after-list-item`, `fences_breaking_paragraphs`, and `list_align_pedantic`
+  - pretty-HTML-only tails such as `list_item_text` should stay de-prioritized unless they uncover a structural parser bug
+
+Status update (2026-03-08, E16 pedantic-list normalization and indented-code blank-line batch complete):
+
+- compat baseline moved from `97` to `94`
+- completed in this batch:
+  - pedantic list continuation lines now normalize nesting with a marked-style leading-space rewrite before item collection and content stripping, which fixes the structural shape of deeply staggered pedantic sublists
+  - pedantic list-item collection now keeps blank-line-separated nested list markers inside an indented parent item instead of ejecting them as top-level blocks
+  - indented code blocks now keep whitespace-only blank lines inside the same code block instead of splitting into multiple code blocks
+- promoted regressions now enforced and passing:
+  - `new/list_align_pedantic`
+  - `new/whiltespace_lines`
+  - `commonmark example 111`
+- notable recovered cases:
+  - `new/whiltespace_lines`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-111`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-111`
+- notable observations from this batch:
+  - `new/list_align_pedantic` is now structurally aligned with marked, but the remaining compat diff is still renderer whitespace around nested `<ul>` boundaries
+  - `new/list_item_text` has been reduced back to a formatting-only tail rather than a list-boundary parser bug
+- remaining high-yield work after this batch:
+  - code-block trailing-newline mismatches such as `code_block_no_ending_newline`, `paragraph-after-list-item`, and `indented_details`
+  - paragraph softbreak formatting mismatches such as `blockquote_setext` and `emphasis_extra tests`
+  - legacy fixture oddities such as `em_and_reflinks`, where the vendored expected HTML now differs from current upstream marked behavior
+
+Status update (2026-03-08, E17 fenced-info normalization and numeric-entity validation batch complete):
+
+- compat baseline moved from `94` to `86`
+- completed in this batch:
+  - fenced code blocks now derive the `language-...` class from only the first whitespace-delimited info token, matching CommonMark instead of treating the full info string as the class name
+  - fenced code info tokens now honor backslash escapes before ASCII punctuation when deriving the language class, so ```` ``` foo\+bar ```` renders `language-foo+bar`
+  - numeric entities longer than 7 decimal digits or 6 hex digits are now rejected as invalid and left literal instead of decoding to `U+FFFD`
+- promoted regressions now enforced and passing:
+  - `commonmark example 24`
+  - `commonmark example 28`
+  - `commonmark example 143`
+  - `commonmark example 146`
+- notable recovered cases:
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-24`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-28`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-143`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-146`
+  - the corresponding GFM CommonMark mirror cases
+- remaining high-yield work after this batch:
+  - container-boundary parser gaps such as `paragraph-after-list-item`, `fences_breaking_paragraphs`, and `indented_details`
+  - renderer-format-only tails such as `list_align_pedantic` and `list_item_text`
+  - the still-ignored compat gap `incorrectly_formatted_list_and_hr`
+
+Status update (2026-03-08, E18 blockquote lazy-continuation state batch complete):
+
+- compat baseline moved from `86` to `82`
+- completed in this batch:
+  - nested blockquote parsing now strips inherited lazy-prefix sentinels before re-parsing, so lazy continuation markers no longer leak into descendant paragraphs or fenced-code contents
+  - blockquotes no longer accept unquoted lazy continuation after a quoted blank line or while a quoted fenced code block is open
+  - indented unquoted lazy lines now continue a quoted paragraph instead of being misclassified as top-level indented code
+- promoted regressions now enforced and passing:
+  - `commonmark example 237`
+  - `commonmark example 238`
+  - `commonmark example 249`
+  - `commonmark example 250`
+- notable recovered cases:
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-237`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-238`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-249`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-250`
+  - the corresponding GFM CommonMark mirror cases
+- remaining high-yield work after this batch:
+  - container/tab/list indentation cases such as `commonmark examples 5, 6, 7, 278, 280, 304, 307, 312, 317, 319`
+  - remaining new-fixture container gaps such as `paragraph-after-list-item`, `fences_breaking_paragraphs`, `tasklist_blocks`, and `indented_tables`
+  - renderer-format-only tails such as `list_align_pedantic` and `list_item_text`
+
 ## File Plan
 
 - New:
@@ -563,3 +668,219 @@ Status update (2026-03-07, E13 pedantic-heading batch complete):
   - one compat impact check
 - No blind baseline refresh:
   - if `xfail` changes, include reason category in commit message.
+
+Status update (2026-03-08, E19 container-indent and paragraph-boundary batch complete):
+
+- compat baseline moved from `82` to `58`
+- completed in this batch:
+  - tab-expanded list and blockquote continuation indentation now normalizes residual columns correctly instead of leaking raw tab overhang into nested container parsing
+  - ordered-list paragraph interruption now follows CommonMark more closely: only `1.` can interrupt a paragraph, and empty items no longer absorb following blocks after a blank line
+  - paragraph continuation lines now strip container indent consistently and trim terminal hard-break spaces before inline parsing
+  - blockquote lazy continuation now stops after quoted indented code, preventing unquoted lines from leaking into quoted code-adjacent paragraphs
+- promoted regressions now enforced and passing:
+  - `commonmark example 5`
+  - `commonmark example 6`
+  - `commonmark example 7`
+  - `commonmark example 223`
+  - `commonmark example 226`
+  - `commonmark example 236`
+  - `commonmark example 278`
+  - `commonmark example 280`
+  - `commonmark example 304`
+  - `commonmark example 636`
+  - `commonmark example 637`
+  - `commonmark example 645`
+- notable recovered cases:
+  - `new/whiltespace_lines.md`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-5`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-6`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-7`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-223`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-226`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-236`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-278`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-280`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-304`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-636`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-637`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-645`
+  - the corresponding GFM CommonMark mirror cases
+- remaining high-yield work after this batch:
+  - list/container looseness edges such as `commonmark examples 109, 307, 312, 317, 318, 319`
+  - remaining new-fixture block gaps such as `paragraph-after-list-item`, `fences_breaking_paragraphs`, and `indented_details`
+  - renderer-format-only tails such as `list_align_pedantic` and `list_item_text`
+
+Status update (2026-03-08, E20 list looseness and nested-container boundary batch complete):
+
+- compat baseline moved from `58` to `46`
+- completed in this batch:
+  - blockquotes can now lazily continue through quoted list items whose first child still owns paragraph content, fixing list-in-quote continuation without reopening top-level paragraphs
+  - tight-list rendering now flattens paragraph children anywhere in the item instead of only flattening the first paragraph, which matches CommonMark list items containing headings or nested blocks
+  - list looseness now distinguishes blank lines that start a direct child block from blank lines that only live inside a nested list or fenced code block
+  - blank lines before nested lists or reference definitions now loosen the parent item, while blank lines contained entirely inside nested descendants no longer loosen outer lists
+- promoted regressions now enforced and passing:
+  - `commonmark example 109`
+  - `commonmark example 292`
+  - `commonmark example 300`
+  - `commonmark example 307`
+  - `commonmark example 317`
+  - `commonmark example 318`
+  - `commonmark example 319`
+- notable recovered cases:
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-109`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-292`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-300`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-307`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-317`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-318`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-319`
+  - the corresponding GFM CommonMark mirror cases
+- remaining high-yield work after this batch:
+  - under-indented nested-list rejection such as `commonmark example 312`
+  - new-fixture parser gaps such as `paragraph-after-list-item`, `tasklist_blocks`, `indented_tables`, and `fences_breaking_paragraphs`
+  - inline / renderer tails such as `example-20`, `example-346`, `example-593`, `example-603`, and the remaining GFM table/tasklist fixtures
+
+Status update (2026-03-08, E21 autolink and disallowed-HTML batch complete):
+
+- compat baseline moved from `46` to `36`
+- completed in this batch:
+  - GFM bare autolink post-processing no longer relies on generic `linkify` behavior for marked-specific edge cases
+  - bare `www.` / scheme / scheme-email autolinks now match marked's termination rules more closely for trailing punctuation, entity-like suffixes, and `xmpp:` path handling
+  - angle autolink destinations now preserve literal backslashes and percent-encode backticks / brackets instead of reusing reference-link destination normalization
+  - GFM disallowed raw HTML tags are now escaped selectively at render time without clobbering allowed raw tags in the same fragment
+- promoted regressions now enforced and passing:
+  - `commonmark example 20`
+  - `commonmark example 346`
+  - `commonmark example 603`
+  - `gfm example 18`
+  - `gfm example 19`
+  - `gfm example 20`
+  - `gfm example 25`
+  - `gfm example 27`
+  - `gfm example 28`
+- notable recovered cases:
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-20`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-346`
+  - `test/specs/commonmark/commonmark.0.31.2.json#example-603`
+  - `test/specs/gfm/gfm.0.29.json#example-18`
+  - `test/specs/gfm/gfm.0.29.json#example-19`
+  - `test/specs/gfm/gfm.0.29.json#example-20`
+  - `test/specs/gfm/gfm.0.29.json#example-24`
+  - `test/specs/gfm/gfm.0.29.json#example-25`
+  - `test/specs/gfm/gfm.0.29.json#example-26`
+  - `test/specs/gfm/gfm.0.29.json#example-27`
+  - `test/specs/gfm/gfm.0.29.json#example-28`
+- remaining high-yield work after this batch:
+  - inline emphasis/reference tails such as `new/em_and_reflinks`, `new/em_list_links`, `new/emoji_strikethrough`, `new/emphasis_extra tests`, and `new/unicode_punctuation`
+  - pedantic link-title/reference behavior such as `original/links_inline_style`, `original/literal_quotes_in_titles`, and `commonmark example 593`
+  - block/container tails such as `paragraph-after-list-item`, `tasklist_blocks`, `indented_tables`, `fences_breaking_paragraphs`, and `toplevel_paragraphs`
+  - low-value compat noise still mixed into the harness via `gfm/commonmark` mirror cases such as `170-178`, `602`, `606`, `608`, `611`, and `612`; these should stay xfailed unless we split mirror coverage from marked-GFM behavior
+
+Status update (2026-03-08, E22 compat harness correction and tilde delimiter cleanup complete):
+
+- compat baseline moved from `33` to `21`
+- completed in this batch:
+  - `tests/compat_snapshot.rs` now treats `test/specs/gfm/commonmark.*.json` as CommonMark mirror coverage rather than forcing `gfm=true`; this removes a false-failure cluster from the compat harness instead of distorting parser behavior to satisfy the wrong mode
+  - triple-tilde inline runs such as `~~~not~~~` no longer get split into nested `<del>` nodes; GFM `~` delimiters are now limited to run lengths that marked actually tokenizes for strikethrough
+  - added direct regression coverage for the CommonMark mirror mode-selection rule and for GFM example `13`
+- promoted regressions now enforced and passing:
+  - `gfm example 13`
+  - `compat_commonmark_mirror_cases_do_not_force_gfm`
+- notable recovered cases:
+  - `test/specs/gfm/commonmark.0.31.2.json#example-170`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-171`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-172`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-173`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-176`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-178`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-602`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-606`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-608`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-611`
+  - `test/specs/gfm/commonmark.0.31.2.json#example-612`
+  - `test/specs/gfm/gfm.0.29.json#example-13`
+- planning notes after this batch:
+  - `new/em_and_reflinks` was rechecked against `marked@17.0.4` runtime and the vendored `.html` fixture does not match current marked output; keep it deprioritized until fixture provenance is clarified
+  - most of the remaining inline-tail cases are now pretty-HTML whitespace differences rather than parser-shape mismatches
+  - the remaining high-value parser work is concentrated in block/container fixtures: `paragraph-after-list-item`, `tasklist_blocks`, `indented_details`, `fences_breaking_paragraphs`, and `toplevel_paragraphs`
+
+Status update (2026-03-08, E23 tasklist first-line block-marker batch complete):
+
+- compat baseline moved from `21` to `20`
+- completed in this batch:
+  - GFM task list items now force the first post-checkbox content line through paragraph parsing, so `# heading`, `> blockquote`, `---`, fenced-code openers, refdefs, raw HTML starts, and GFM tables stay literal inside the task item's first line the same way marked renders them
+  - task list items no longer register reference definitions from their first line after stripping `[x]` / `[ ]`, which fixes empty-list-item regressions such as `- [x] [def]: ...`
+  - parser regression normalization now canonicalizes `<input>` attribute order, matching the compat harness and removing noise from tasklist-focused regression gates
+- promoted regressions now enforced and passing:
+  - `new/tasklist_blocks.md`
+- notable recovered cases:
+  - `new/tasklist_blocks.md`
+- remaining high-yield work after this batch:
+  - block/container tails with real structure gaps: `paragraph-after-list-item`, `indented_details`, `fences_breaking_paragraphs`, `toplevel_paragraphs`
+  - legacy Markdown paragraph/list behavior: `original/hard_wrapped_paragraphs_with_list_like_lines`, `original/tabs`
+  - mostly formatting-leaning tails still left in compat: `blockquote_setext`, `em_list_links`, `emoji_strikethrough`, `emphasis_extra tests`, `unicode_punctuation`, `list_align_pedantic`, `list_item_text`
+
+Status update (2026-03-08, E24 regression-normalization alignment and pedantic refdef guard complete):
+
+- compat baseline moved from `20` to `19`
+- completed in this batch:
+  - reference-definition multiline continuation now stops before swallowing a following standalone definition line; focused block coverage was added for adjacent pedantic refdefs with indentation
+  - `tests/parser_regressions.rs` now uses the same HTML normalization rules as `tests/compat_snapshot.rs`, so entity-spelling differences such as `&quot;` vs `"` no longer create false regression failures
+  - `original/markdown_documentation_basics.md` was promoted into parser regressions and removed from the compat xfail baseline once the stronger normalization confirmed it is already matched
+  - `new/list_align_pedantic.md` remains a known compat gap; its parser-regression test is now explicitly ignored instead of passing via weaker normalization
+- promoted regressions now enforced and passing:
+  - `original/markdown_documentation_basics.md`
+  - focused pedantic refdef continuation coverage in `tests/parser_blocks.rs`
+- notable recovered cases:
+  - `original/markdown_documentation_basics.md`
+- remaining high-yield work after this batch:
+  - real compat deltas still left in the runtime-verified set are led by `new/em_list_links.md`
+  - stale vendored fixtures still mixed into compat include `blockquote_setext`, `code_block_no_ending_newline`, `fences_breaking_paragraphs`, `indented_details`, `indented_tables`, `paragraph-after-list-item`, `toplevel_paragraphs`, and `original/tabs`
+  - the next worthwhile parser/runtime target is the tight-list whitespace family around `em_list_links`; after that the remaining work is mostly either stale fixture drift or known pedantic whitespace tails
+
+Status update (2026-03-08, E25 runtime-drift triage tooling added):
+
+- compat baseline remains `19`
+- completed in this batch:
+  - added `scripts/check-marked-runtime-drift.mjs` and `npm run test:compat:runtime`
+  - the new script installs the vendored `marked` version in a temp directory, re-renders compat fixtures with the same front-matter options as the Rust harness, and classifies each checked fixture as `MATCH` or `STALE` after using the same HTML normalization rules as the compat suite
+  - current xfail scan result is `checked=19`, `match=1`, `stale=18`, which confirms that most remaining xfails are no longer good parser targets against current `marked@17.0.4`
+- notable findings from this batch:
+  - the only runtime-aligned xfail left is `new/em_list_links.md`
+  - stale vendored xfails now explicitly confirmed by the script include `blockquote_setext`, `code_block_no_ending_newline`, `fences_breaking_paragraphs`, `indented_details`, `indented_tables`, `paragraph-after-list-item`, `toplevel_paragraphs`, `original/markdown_documentation_syntax`, and `original/tabs`
+  - manual runtime probes also showed a tighter conflict in nested-list whitespace: current `marked@17.0.4` omits the paragraph-to-sublist newline for cases like `em_list_links`, `nested_blockquote_in_list`, and CommonMark examples `307` and `319`, while the vendored fixtures/spec snapshots still preserve that newline in some non-xfail cases
+- planning notes after this batch:
+  - do not keep pushing parser/renderer changes directly against the remaining vendored xfail list; the harness target has diverged too far from current upstream runtime
+  - the next engineering step should be either:
+    - split “vendored snapshot compatibility” from “current marked runtime compatibility”, or
+    - refresh the vendored marked fixtures/spec snapshots before continuing parser work on the remaining list
+
+Status update (2026-03-08, E26 compat harness split into snapshot gate and runtime audit):
+
+- compat baseline remains `19`
+- completed in this batch:
+  - renamed the Rust integration harness from `tests/compat_marked.rs` to `tests/compat_snapshot.rs` so the gated fixture/spec check is explicitly a vendored snapshot target
+  - `package.json` now exposes `npm run test:compat:snapshot`, `npm run test:compat:runtime`, and keeps `npm run test:compat` as an aggregate that runs both layers in sequence
+  - snapshot baseline updates are now explicit through `npm run test:compat:snapshot:update-xfail`, and the `tests/compat/xfail.yaml` header now labels the file as snapshot-only
+  - README and requirements docs now describe the split between vendored snapshot compatibility and current runtime drift auditing
+- planning notes after this batch:
+  - parser work can now target either the vendored snapshot gate or the current runtime audit without pretending they are the same compatibility objective
+  - remaining entries in `tests/compat/xfail.yaml` should be treated as snapshot deltas unless they are separately revalidated against `npm run test:compat:runtime`
+
+Status update (2026-03-08, E27 current-marked runtime gate added):
+
+- snapshot baseline remains `19`
+- runtime baseline initialized at `150`
+- completed in this batch:
+  - extracted shared compat helpers into `tests/compat_support/mod.rs` so snapshot/runtime suites use the same fixture collection, front-matter parsing, HTML normalization, and xfail YAML handling
+  - added `tests/compat_runtime.rs`, which batches every compat fixture through a Node oracle backed by `marked@17.0.4` and compares the normalized runtime HTML against `markrs`
+  - added `scripts/render-marked-runtime.mjs` as the batch renderer used by the Rust runtime suite
+  - `package.json` now treats `npm run test:compat:runtime` as the real current-runtime gate, with `npm run test:compat:runtime:update-xfail` for its baseline and `npm run test:compat:runtime-drift` reserved for the older snapshot-drift audit
+  - runtime baseline is stored in `tests/compat/runtime_xfail.yaml`
+- notable findings from this batch:
+  - the runtime mismatch surface is much larger than the remaining snapshot xfail list: `150` total runtime xfails versus `19` snapshot xfails
+  - current runtime xfails break down as `59` CommonMark mirror cases, `65` GFM cases, `18` `new/` fixtures, and `8` `original/` fixtures
+  - this confirms the current parser is closer to the vendored snapshots than to the current `marked` runtime on several clusters, so future compatibility work needs an explicit choice of target
+- planning notes after this batch:
+  - if the goal is upstream-current parity, the next reduction pass should come from `tests/compat/runtime_xfail.yaml`, not from `tests/compat/xfail.yaml`
+  - `npm run test:compat:runtime-drift` remains useful to identify stale vendored snapshot entries, but it is no longer a substitute for measuring actual runtime compatibility

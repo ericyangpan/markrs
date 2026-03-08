@@ -13,6 +13,43 @@ fn parser_inlines_render_link_and_image_titles() {
 }
 
 #[test]
+fn parser_inlines_pedantic_links_allow_spacey_destinations_and_literal_quotes() {
+    let md = "[space]( /url/has space )\n\n[space title]( /url/has space/ \"title here\")\n\n[quoted](/url/ \"Title with \"quotes\" inside\")";
+    let html = render_markdown_to_html(
+        md,
+        RenderOptions {
+            pedantic: true,
+            ..RenderOptions::default()
+        },
+    );
+
+    assert!(html.contains("<a href=\"/url/has%20space\">space</a>"));
+    assert!(html.contains("<a href=\"/url/has%20space/\" title=\"title here\">space title</a>"));
+    assert!(
+        html.contains(
+            "<a href=\"/url/\" title=\"Title with &quot;quotes&quot; inside\">quoted</a>"
+        )
+    );
+}
+
+#[test]
+fn parser_inlines_escaped_bang_still_allows_reference_links() {
+    let md = "\\![foo]\n\n[foo]: /url \"title\"";
+    let html = render_markdown_to_html(
+        md,
+        RenderOptions {
+            gfm: false,
+            ..RenderOptions::default()
+        },
+    );
+
+    assert_eq!(
+        html.trim(),
+        "<p>!<a href=\"/url\" title=\"title\">foo</a></p>"
+    );
+}
+
+#[test]
 fn parser_inlines_render_parenthesized_and_entity_titles() {
     let md = "[link](/url (title))\n\n[link](/url \"title \\\"&quot;\")";
     let html = render_markdown_to_html(md, RenderOptions::default());
@@ -74,6 +111,25 @@ fn parser_inlines_render_generic_scheme_autolinks() {
 }
 
 #[test]
+fn parser_inlines_preserve_literal_backslashes_and_backticks_in_angle_autolinks() {
+    let html = render_markdown_to_html(
+        "<https://example.com/\\[\\>\n\n<https://foo.bar.`baz>\n\n<https://example.com?find=\\*>",
+        RenderOptions {
+            gfm: false,
+            ..RenderOptions::default()
+        },
+    );
+
+    assert!(
+        html.contains("<a href=\"https://example.com/%5C%5B%5C\">https://example.com/\\[\\</a>")
+    );
+    assert!(html.contains("<a href=\"https://foo.bar.%60baz\">https://foo.bar.`baz</a>"));
+    assert!(
+        html.contains("<a href=\"https://example.com?find=%5C*\">https://example.com?find=\\*</a>")
+    );
+}
+
+#[test]
 fn parser_inlines_do_not_render_spaced_angle_brackets_as_autolinks() {
     let html = render_markdown_to_html(
         "< https://foo.bar >",
@@ -84,6 +140,39 @@ fn parser_inlines_do_not_render_spaced_angle_brackets_as_autolinks() {
     );
 
     assert_eq!(html.trim(), "<p>&lt; https://foo.bar &gt;</p>");
+}
+
+#[test]
+fn parser_inlines_match_marked_gfm_bare_autolink_edges() {
+    let md = "www.google.com/search?q=(business))+ok\n\nwww.google.com/search?q=commonmark&hl=en\n\nwww.google.com/search?q=commonmark&hl;\n\nxmpp:foo@bar.baz/txt/bin";
+    let html = render_markdown_to_html(md, RenderOptions::default());
+
+    assert!(html.contains(
+        "<a href=\"http://www.google.com/search?q=(business))+ok\">www.google.com/search?q=(business))+ok</a>"
+    ));
+    assert!(html.contains(
+        "<a href=\"http://www.google.com/search?q=commonmark&amp;hl=en\">www.google.com/search?q=commonmark&amp;hl=en</a>"
+    ));
+    assert!(html.contains(
+        "<a href=\"http://www.google.com/search?q=commonmark\">www.google.com/search?q=commonmark</a>&amp;hl;"
+    ));
+    assert!(html.contains("<a href=\"xmpp:foo@bar.baz/txt\">xmpp:foo@bar.baz/txt</a>/bin"));
+}
+
+#[test]
+fn parser_inlines_do_not_treat_triple_tilde_runs_as_nested_strikethrough() {
+    let html = render_markdown_to_html("This will ~~~not~~~ strike.", RenderOptions::default());
+
+    assert_eq!(html.trim(), "<p>This will ~~~not~~~ strike.</p>");
+}
+
+#[test]
+fn parser_inlines_escape_gfm_disallowed_raw_html_tags() {
+    let md = "<strong> <title> <style> <em>\n\n<blockquote>\n  <xmp> is disallowed.\n</blockquote>";
+    let html = render_markdown_to_html(md, RenderOptions::default());
+
+    assert!(html.contains("<p><strong> &lt;title> &lt;style> <em></p>"));
+    assert!(html.contains("<blockquote>\n  &lt;xmp> is disallowed.\n</blockquote>"));
 }
 
 #[test]
@@ -133,7 +222,10 @@ fn parser_inlines_support_nested_emphasis_and_strong() {
     let md = "*test **test** test*";
     let html = render_markdown_to_html(md, RenderOptions::default());
 
-    assert_eq!(html.trim(), "<p><em>test <strong>test</strong> test</em></p>");
+    assert_eq!(
+        html.trim(),
+        "<p><em>test <strong>test</strong> test</em></p>"
+    );
 }
 
 #[test]
@@ -189,7 +281,9 @@ fn parser_inlines_reject_outer_links_when_label_contains_link() {
     let html = render_markdown_to_html(md, RenderOptions::default());
 
     assert!(html.contains("<p>[foo <a href=\"/uri\">bar</a>](/uri)</p>"));
-    assert!(html.contains("<p>[foo <em>bar <a href=\"/uri\">baz</a></em>]<a href=\"/uri\">ref</a></p>"));
+    assert!(
+        html.contains("<p>[foo <em>bar <a href=\"/uri\">baz</a></em>]<a href=\"/uri\">ref</a></p>")
+    );
 }
 
 #[test]

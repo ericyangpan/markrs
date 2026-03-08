@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use crate::markdown::{
     ast::inline::Inline,
     block::{
-        ReferenceDefinition, decode_html_entities, is_valid_reference_label, parse_html_entity,
-        normalize_reference_destination, normalize_reference_label,
+        ReferenceDefinition, decode_html_entities, is_valid_reference_label,
+        normalize_reference_destination, normalize_reference_label, parse_html_entity,
     },
 };
 
@@ -191,7 +191,11 @@ pub(crate) fn parse_inline_with_refs(
             }
         }
 
-        if chars[i] == '!' && i + 1 < chars.len() && chars[i + 1] == '[' {
+        if chars[i] == '!'
+            && i + 1 < chars.len()
+            && chars[i + 1] == '['
+            && !is_escaped_char(&chars, i)
+        {
             if let Some((close_ref, src, title, alt)) =
                 parse_reference_image(&chars, i + 1, gfm, pedantic, refs)
             {
@@ -223,7 +227,7 @@ pub(crate) fn parse_inline_with_refs(
             }
         }
 
-        if chars[i] == '[' && (i == 0 || chars[i - 1] != '!') {
+        if chars[i] == '[' && !is_unescaped_image_marker(&chars, i) {
             if let Some((href, close_link, label, title)) = parse_link_like(&chars, i, pedantic) {
                 let parsed_label = parse_inline_with_refs(&label, gfm, pedantic, refs);
                 if inline_nodes_contain_link(&parsed_label) {
@@ -302,7 +306,10 @@ pub(crate) fn parse_inline_with_refs(
 
 fn is_token_start(chars: &[char], i: usize) -> bool {
     let c = chars[i];
-    matches!(c, '\\' | '*' | '_' | '[' | '!' | '`' | '\n' | '~' | '>' | '<' | '&')
+    matches!(
+        c,
+        '\\' | '*' | '_' | '[' | '!' | '`' | '\n' | '~' | '>' | '<' | '&'
+    )
 }
 
 fn inline_nodes_contain_link(nodes: &[Inline]) -> bool {
@@ -351,6 +358,12 @@ fn parse_delimiter_run(chars: &[char], start: usize, gfm: bool) -> Option<(Inlin
     }
 
     let run_len = count_consecutive(chars, start, marker);
+    if marker == '~' && run_len > 2 {
+        return Some((
+            InlinePart::Node(Inline::Text(chars[start..start + run_len].iter().collect())),
+            run_len,
+        ));
+    }
     let can_open = delimiter_run_can_open(chars, start, run_len, marker);
     let can_close = delimiter_run_can_close(chars, start, run_len, marker);
     let part = if can_open || can_close {
@@ -431,9 +444,7 @@ fn resolve_delimiter_runs(mut parts: Vec<InlinePart>) -> Vec<InlinePart> {
 
             let (opener_len, opener_original_len) = match &parts[opener_idx] {
                 InlinePart::Delimiter {
-                    len,
-                    original_len,
-                    ..
+                    len, original_len, ..
                 } => (*len, *original_len),
                 InlinePart::Node(_) => unreachable!("matched opener must be delimiter"),
             };
@@ -591,17 +602,15 @@ fn should_defer_ambiguous_closer(
                 original_len: later_original_len,
                 can_open: later_can_open,
                 can_close: later_can_close,
-            } if *later_marker == marker && *later_can_close => {
-                delimiter_runs_can_pair(
-                    marker,
-                    opener_len,
-                    opener_original_len,
-                    opener_can_close,
-                    *later_len,
-                    *later_original_len,
-                    *later_can_open,
-                )
-            }
+            } if *later_marker == marker && *later_can_close => delimiter_runs_can_pair(
+                marker,
+                opener_len,
+                opener_original_len,
+                opener_can_close,
+                *later_len,
+                *later_original_len,
+                *later_can_open,
+            ),
             _ => false,
         })
 }
@@ -681,7 +690,11 @@ fn parse_raw_html(chars: &[char], start: usize) -> Option<usize> {
         return None;
     }
 
-    if starts_with(chars, start, "<!") && chars.get(start + 2).is_some_and(|ch| ch.is_ascii_uppercase()) {
+    if starts_with(chars, start, "<!")
+        && chars
+            .get(start + 2)
+            .is_some_and(|ch| ch.is_ascii_uppercase())
+    {
         let mut i = start + 3;
         while i < chars.len() {
             if chars[i] == '>' {
@@ -932,11 +945,7 @@ fn delimiter_run_can_close(chars: &[char], start: usize, run_len: usize, marker:
     }
 }
 
-fn delimiter_flanking(
-    chars: &[char],
-    start: usize,
-    run_len: usize,
-) -> (bool, bool, bool, bool) {
+fn delimiter_flanking(chars: &[char], start: usize, run_len: usize) -> (bool, bool, bool, bool) {
     let prev = if start == 0 {
         None
     } else {
@@ -1121,9 +1130,7 @@ fn parse_autolink_like(chars: &[char], start: usize) -> Option<(String, String, 
         return None;
     }
 
-    let inner = chars[start + 1..close]
-        .iter()
-        .collect::<String>();
+    let inner = chars[start + 1..close].iter().collect::<String>();
     let trimmed = inner.trim();
     if trimmed.is_empty()
         || inner != trimmed
@@ -1135,7 +1142,7 @@ fn parse_autolink_like(chars: &[char], start: usize) -> Option<(String, String, 
     }
 
     let href = if is_autolink_uri(trimmed) {
-        normalize_reference_destination(trimmed)?
+        normalize_autolink_destination(trimmed)?
     } else if is_autolink_email(trimmed) {
         format!("mailto:{trimmed}")
     } else {
@@ -1143,6 +1150,41 @@ fn parse_autolink_like(chars: &[char], start: usize) -> Option<(String, String, 
     };
 
     Some((href, trimmed.to_string(), close))
+}
+
+fn normalize_autolink_destination(raw: &str) -> Option<String> {
+    if raw.is_empty() {
+        return Some(String::new());
+    }
+
+    Some(percent_encode_autolink_destination(&decode_html_entities(
+        raw,
+    )))
+}
+
+fn percent_encode_autolink_destination(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for ch in raw.chars() {
+        match ch {
+            ' ' => out.push_str("%20"),
+            '"' => out.push_str("%22"),
+            '\\' => out.push_str("%5C"),
+            '[' => out.push_str("%5B"),
+            ']' => out.push_str("%5D"),
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '`' => out.push_str("%60"),
+            _ if ch.is_ascii() && !ch.is_ascii_control() => out.push(ch),
+            _ => {
+                let mut buf = [0u8; 4];
+                for byte in ch.encode_utf8(&mut buf).as_bytes() {
+                    use std::fmt::Write as _;
+                    write!(out, "%{:02X}", byte).expect("write percent-encoded byte");
+                }
+            }
+        }
+    }
+    out
 }
 
 fn parse_quoted_autolink_like(chars: &[char], start: usize) -> Option<(String, String, usize)> {
@@ -1158,7 +1200,11 @@ fn parse_quoted_autolink_like(chars: &[char], start: usize) -> Option<(String, S
     while close > start + 1 {
         if chars[close - 1] == quote {
             let inner: String = chars[start + 1..close - 1].iter().collect();
-            if inner.is_empty() || inner.contains(' ') || inner.contains('\n') || inner.contains('\r') {
+            if inner.is_empty()
+                || inner.contains(' ')
+                || inner.contains('\n')
+                || inner.contains('\r')
+            {
                 close -= 1;
                 continue;
             }
@@ -1204,7 +1250,9 @@ fn is_autolink_uri(raw: &str) -> bool {
     if !scheme_chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) {
         return false;
     }
-    !rest.chars().any(|c| c.is_whitespace() || matches!(c, '<' | '>'))
+    !rest
+        .chars()
+        .any(|c| c.is_whitespace() || matches!(c, '<' | '>'))
 }
 
 fn is_autolink_email(raw: &str) -> bool {
@@ -1276,9 +1324,7 @@ fn parse_reference_link(
 
     let mut next = close_label + 1;
     if pedantic {
-        while next < chars.len()
-            && matches!(chars[next], ' ' | '\t' | '\n' | '\r')
-        {
+        while next < chars.len() && matches!(chars[next], ' ' | '\t' | '\n' | '\r') {
             next += 1;
         }
     }
@@ -1299,8 +1345,8 @@ fn parse_reference_link(
         }
 
         let normalized = normalize_reference_label(&ref_label);
-        if let Some(def) = refs
-            .and_then(|m: &HashMap<String, ReferenceDefinition>| m.get(&normalized))
+        if let Some(def) =
+            refs.and_then(|m: &HashMap<String, ReferenceDefinition>| m.get(&normalized))
         {
             return Some((close_ref, def.href.clone(), def.title.clone(), label));
         }
@@ -1308,8 +1354,7 @@ fn parse_reference_link(
     }
 
     let normalized = normalize_reference_label(candidate_ref);
-    if let Some(def) = refs
-        .and_then(|m: &HashMap<String, ReferenceDefinition>| m.get(&normalized))
+    if let Some(def) = refs.and_then(|m: &HashMap<String, ReferenceDefinition>| m.get(&normalized))
     {
         Some((close_label, def.href.clone(), def.title.clone(), label))
     } else {
@@ -1325,7 +1370,7 @@ fn parse_reference_image(
     refs: Option<&HashMap<String, ReferenceDefinition>>,
 ) -> Option<(usize, String, Option<String>, String)> {
     let _ = gfm;
-    if start == 0 || chars[start - 1] != '!' || chars[start] != '[' {
+    if !is_unescaped_image_marker(chars, start) {
         return None;
     }
 
@@ -1335,9 +1380,7 @@ fn parse_reference_image(
 
     let mut next = close_alt + 1;
     if pedantic {
-        while next < chars.len()
-            && matches!(chars[next], ' ' | '\t' | '\n' | '\r')
-        {
+        while next < chars.len() && matches!(chars[next], ' ' | '\t' | '\n' | '\r') {
             next += 1;
         }
     }
@@ -1361,14 +1404,8 @@ fn parse_reference_image(
     }
 
     let normalized = normalize_reference_label(candidate_ref);
-    refs.and_then(|m| m.get(&normalized)).map(|def| {
-        (
-            close_alt,
-            def.href.clone(),
-            def.title.clone(),
-            alt,
-        )
-    })
+    refs.and_then(|m| m.get(&normalized))
+        .map(|def| (close_alt, def.href.clone(), def.title.clone(), alt))
 }
 
 fn is_escapable(ch: char) -> bool {
@@ -1380,7 +1417,7 @@ fn parse_image_like(
     start: usize,
     pedantic: bool,
 ) -> Option<(String, String, Option<String>, usize)> {
-    if start == 0 || chars[start - 1] != '!' {
+    if !is_unescaped_image_marker(chars, start) {
         return None;
     }
     let close_alt = find_matching_bracket(chars, start, '[', ']')?;
@@ -1406,6 +1443,12 @@ fn parse_inline_link_target(
         return Some((String::new(), None, i));
     }
 
+    if pedantic && i < chars.len() && chars[i] != '<' {
+        if let Some(parsed) = parse_pedantic_bare_link_target(chars, i) {
+            return Some(parsed);
+        }
+    }
+
     let (href, after_dest) = if i < chars.len() && chars[i] == '<' {
         parse_angle_link_destination(chars, i, pedantic)?
     } else {
@@ -1428,7 +1471,7 @@ fn parse_inline_link_target(
         return None;
     }
 
-    let (title, after_title) = parse_link_title_chars(chars, j)?;
+    let (title, after_title) = parse_link_title_chars_mode(chars, j, pedantic)?;
     let mut k = after_title;
     while k < chars.len() && is_markdown_whitespace(chars[k]) {
         k += 1;
@@ -1440,7 +1483,81 @@ fn parse_inline_link_target(
     Some((href, Some(title), k))
 }
 
-fn parse_angle_link_destination(chars: &[char], start: usize, pedantic: bool) -> Option<(String, usize)> {
+fn parse_pedantic_bare_link_target(
+    chars: &[char],
+    start: usize,
+) -> Option<(String, Option<String>, usize)> {
+    let close = find_pedantic_link_target_end(chars, start)?;
+    let inner = chars[start..close].iter().collect::<String>();
+    let trimmed = inner.trim_start();
+    if trimmed.is_empty() {
+        return Some((String::new(), None, close));
+    }
+
+    if let Some((dest, title)) = split_pedantic_destination_and_title(trimmed) {
+        return Some((normalize_reference_destination(&dest)?, Some(title), close));
+    }
+
+    Some((
+        normalize_reference_destination(trimmed.trim_end())?,
+        None,
+        close,
+    ))
+}
+
+fn find_pedantic_link_target_end(chars: &[char], start: usize) -> Option<usize> {
+    let mut i = start;
+    let mut escaped = false;
+
+    while i < chars.len() {
+        let ch = chars[i];
+        if escaped {
+            escaped = false;
+            i += 1;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            i += 1;
+            continue;
+        }
+        if ch == ')' {
+            return Some(i);
+        }
+        if ch == '\n' || ch == '\r' {
+            return None;
+        }
+        i += 1;
+    }
+
+    None
+}
+
+fn split_pedantic_destination_and_title(raw: &str) -> Option<(String, String)> {
+    for (idx, ch) in raw.char_indices() {
+        if !is_markdown_whitespace(ch) {
+            continue;
+        }
+        let dest = raw[..idx].trim_end();
+        if dest.is_empty() {
+            continue;
+        }
+        let title_raw = raw[idx..].trim_start();
+        if let Some((title, consumed)) = parse_link_title_str(title_raw, true) {
+            if title_raw[consumed..].trim().is_empty() {
+                return Some((dest.to_string(), title));
+            }
+        }
+    }
+
+    None
+}
+
+fn parse_angle_link_destination(
+    chars: &[char],
+    start: usize,
+    pedantic: bool,
+) -> Option<(String, usize)> {
     if chars.get(start).copied() != Some('<') {
         return None;
     }
@@ -1555,27 +1672,91 @@ fn find_unescaped_char(input: &str, marker: char) -> Option<usize> {
 }
 
 fn parse_link_title_chars(chars: &[char], start: usize) -> Option<(String, usize)> {
-    let quote = *chars.get(start)?;
+    parse_link_title_chars_mode(chars, start, false)
+}
+
+fn parse_link_title_chars_mode(
+    chars: &[char],
+    start: usize,
+    pedantic: bool,
+) -> Option<(String, usize)> {
+    let _ = *chars.get(start)?;
+    let raw = chars[start..].iter().collect::<String>();
+    let (title, consumed) = parse_link_title_str(&raw, pedantic)?;
+    let consumed_chars = raw[..consumed].chars().count();
+    Some((title, start + consumed_chars))
+}
+
+fn parse_link_title_str(raw: &str, pedantic: bool) -> Option<(String, usize)> {
+    let chars = raw.chars().collect::<Vec<_>>();
+    let quote = *chars.first()?;
     let close = match quote {
         '"' | '\'' => quote,
         '(' => ')',
         _ => return None,
     };
 
-    let mut i = start + 1;
+    let end = if pedantic && matches!(quote, '"' | '\'') {
+        find_last_unescaped_title_close(&chars, close)?
+    } else {
+        find_first_unescaped_title_close(&chars, close)?
+    };
+
+    let title = decode_html_entities(&unescape_inline(chars[1..end].iter().collect::<String>()));
+    let consumed = chars[..=end].iter().collect::<String>().len();
+    Some((title, consumed))
+}
+
+fn find_first_unescaped_title_close(chars: &[char], close: char) -> Option<usize> {
+    let mut i = 1usize;
     while i < chars.len() {
         if chars[i] == '\\' && i + 1 < chars.len() {
             i += 2;
             continue;
         }
         if chars[i] == close {
-            let raw = chars[start + 1..i].iter().collect::<String>();
-            return Some((decode_html_entities(&unescape_inline(raw)), i + 1));
+            return Some(i);
         }
         i += 1;
     }
-
     None
+}
+
+fn find_last_unescaped_title_close(chars: &[char], close: char) -> Option<usize> {
+    let mut candidate = None;
+    let mut i = 1usize;
+    while i < chars.len() {
+        if chars[i] == '\\' && i + 1 < chars.len() {
+            i += 2;
+            continue;
+        }
+        if chars[i] == close {
+            candidate = Some(i);
+        }
+        i += 1;
+    }
+    candidate
+}
+
+fn is_unescaped_image_marker(chars: &[char], start: usize) -> bool {
+    start > 0
+        && chars[start] == '['
+        && chars[start - 1] == '!'
+        && !is_escaped_char(chars, start - 1)
+}
+
+fn is_escaped_char(chars: &[char], index: usize) -> bool {
+    if index == 0 {
+        return false;
+    }
+
+    let mut backslashes = 0usize;
+    let mut i = index;
+    while i > 0 && chars[i - 1] == '\\' {
+        backslashes += 1;
+        i -= 1;
+    }
+    backslashes % 2 == 1
 }
 
 fn is_markdown_whitespace(ch: char) -> bool {
@@ -1793,10 +1974,18 @@ mod tests {
         );
 
         let nodes = parse_inline_with_refs("Foo [bar] [1].", true, false, Some(&refs));
-        assert!(nodes.iter().any(|node| matches!(node, Inline::Link { href, .. } if href == "/url/")));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(node, Inline::Link { href, .. } if href == "/url/"))
+        );
 
         let nodes = parse_inline_with_refs("And [this] [].", true, false, Some(&refs));
-        assert!(nodes.iter().any(|node| matches!(node, Inline::Link { href, .. } if href == "foo")));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| matches!(node, Inline::Link { href, .. } if href == "foo"))
+        );
     }
 
     #[test]
@@ -1817,7 +2006,9 @@ mod tests {
     #[test]
     fn keeps_non_ascii_space_inside_link_destination() {
         let nodes = parse_inline("[link](/url\u{00A0}\"title\")", true);
-        assert!(matches!(&nodes[0], Inline::Link { href, title, .. } if href == "/url%C2%A0%22title%22" && title.is_none()));
+        assert!(
+            matches!(&nodes[0], Inline::Link { href, title, .. } if href == "/url%C2%A0%22title%22" && title.is_none())
+        );
     }
 
     #[test]
