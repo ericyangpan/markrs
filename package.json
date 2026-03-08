@@ -46,6 +46,7 @@
     "test:compat:runtime-drift": "node scripts/check-marked-runtime-drift.mjs",
     "test:compat:report": "node scripts/compat-report.mjs",
     "check": "cargo check",
+    "check:strict": "node scripts/check-strict.mjs",
     "sync:npm-versions": "node scripts/sync-npm-versions.mjs",
     "check:npm-versions": "node scripts/check-npm-versions.mjs"
   },

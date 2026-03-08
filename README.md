@@ -57,6 +57,7 @@ markrs --document --css ./extra.css README.md > page.html
 
 ```bash
 npm run check
+npm run check:strict
 npm run test:own
 npm run test:compat:snapshot
 npm run test:compat:runtime
@@ -74,6 +75,7 @@ Compatibility fixtures are synced under `third_party/marked/test/specs`.
 
 Compat now has two layers:
 
+- `npm run check:strict`: runs Rust compile/test gates with warnings denied.
 - `npm run test:compat:snapshot`: gated comparison against vendored marked fixture/spec snapshots.
 - `npm run test:compat:runtime`: gated comparison against the current vendored `marked` npm runtime.
 - `npm run test:compat:runtime-drift`: auxiliary audit that checks whether snapshot-xfailed vendored fixtures still match the current runtime.
