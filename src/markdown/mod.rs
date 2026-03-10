@@ -1,7 +1,6 @@
 use crate::RenderOptions;
 
 mod ast;
-mod autolink;
 mod block;
 mod inline;
 mod lexer;

@@ -163,26 +163,26 @@ Environment: Apple M4 | darwin 24.6.0 (arm64) | Node 22.12.0 | Rust rustc 1.93.0
 
 | Suite | Engine | Mean ms | Median ms | Docs/s | MiB/s | vs marked |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| README.md | markrs (Rust) | 0.51 | 0.49 | 1961.3 | 13.61 | 1.07x |
-| README.md | pulldown-cmark (Rust) | 0.06 | 0.06 | 17057.6 | 118.41 | 9.27x |
-| README.md | marked (JS) | 0.54 | 0.48 | 1840.3 | 12.77 | 1.00x |
-| README.md | markdown-it (JS) | 0.42 | 0.38 | 2388.6 | 16.58 | 1.30x |
-| README.md | remark + gfm + html | 4.35 | 4.33 | 230.0 | 1.60 | 0.12x |
-| CommonMark Core | markrs (Rust) | 1.27 | 1.25 | 514317.2 | 11.22 | 1.59x |
-| CommonMark Core | pulldown-cmark (Rust) | 0.63 | 0.61 | 1038409.4 | 22.66 | 3.21x |
-| CommonMark Core | marked (JS) | 2.02 | 1.72 | 323124.2 | 7.05 | 1.00x |
-| CommonMark Core | markdown-it (JS) | 2.09 | 2.02 | 312670.5 | 6.82 | 0.97x |
-| CommonMark Core | remark + gfm + html | 24.94 | 24.40 | 26145.0 | 0.57 | 0.08x |
-| Marked Fixtures | markrs (Rust) | 3.96 | 3.88 | 38620.2 | 14.37 | 1.04x |
-| Marked Fixtures | pulldown-cmark (Rust) | 0.65 | 0.63 | 234411.7 | 87.20 | 6.30x |
-| Marked Fixtures | marked (JS) | 4.12 | 4.10 | 37178.8 | 13.83 | 1.00x |
-| Marked Fixtures | markdown-it (JS) | 3.08 | 2.97 | 49661.4 | 18.47 | 1.34x |
-| Marked Fixtures | remark + gfm + html | 42.49 | 41.73 | 3600.5 | 1.34 | 0.10x |
-| Comparable Corpus | markrs (Rust) | 6.67 | 6.60 | 222653.3 | 13.02 | 1.21x |
-| Comparable Corpus | pulldown-cmark (Rust) | 1.44 | 1.46 | 1034062.7 | 60.45 | 5.63x |
-| Comparable Corpus | marked (JS) | 8.09 | 7.88 | 183659.7 | 10.74 | 1.00x |
-| Comparable Corpus | markdown-it (JS) | 6.40 | 6.26 | 232092.2 | 13.57 | 1.26x |
-| Comparable Corpus | remark + gfm + html | 120.33 | 120.49 | 12341.3 | 0.72 | 0.07x |
+| README.md | markrs (Rust) | 0.20 | 0.19 | 4900.4 | 34.01 | 3.21x |
+| README.md | pulldown-cmark (Rust) | 0.03 | 0.02 | 37117.3 | 257.63 | 24.34x |
+| README.md | marked (JS) | 0.66 | 0.48 | 1524.8 | 10.58 | 1.00x |
+| README.md | markdown-it (JS) | 0.44 | 0.38 | 2290.4 | 15.90 | 1.50x |
+| README.md | remark + gfm + html | 7.05 | 6.15 | 141.9 | 0.98 | 0.09x |
+| CommonMark Core | markrs (Rust) | 0.89 | 0.85 | 729309.8 | 15.91 | 2.46x |
+| CommonMark Core | pulldown-cmark (Rust) | 0.28 | 0.27 | 2334268.7 | 50.94 | 7.88x |
+| CommonMark Core | marked (JS) | 2.20 | 1.97 | 296130.9 | 6.46 | 1.00x |
+| CommonMark Core | markdown-it (JS) | 2.24 | 2.05 | 290898.8 | 6.35 | 0.98x |
+| CommonMark Core | remark + gfm + html | 33.35 | 32.40 | 19548.9 | 0.43 | 0.07x |
+| Marked Fixtures | markrs (Rust) | 3.71 | 3.61 | 41233.4 | 15.34 | 3.12x |
+| Marked Fixtures | pulldown-cmark (Rust) | 0.34 | 0.32 | 456621.7 | 169.86 | 34.59x |
+| Marked Fixtures | marked (JS) | 11.59 | 8.98 | 13201.1 | 4.91 | 1.00x |
+| Marked Fixtures | markdown-it (JS) | 3.15 | 3.07 | 48529.1 | 18.05 | 3.68x |
+| Marked Fixtures | remark + gfm + html | 76.91 | 70.08 | 1989.3 | 0.74 | 0.15x |
+| Comparable Corpus | markrs (Rust) | 5.62 | 5.59 | 264411.3 | 15.46 | 1.95x |
+| Comparable Corpus | pulldown-cmark (Rust) | 1.02 | 0.98 | 1462894.0 | 85.52 | 10.79x |
+| Comparable Corpus | marked (JS) | 10.95 | 10.51 | 135603.3 | 7.93 | 1.00x |
+| Comparable Corpus | markdown-it (JS) | 6.15 | 6.15 | 241481.9 | 14.12 | 1.78x |
+| Comparable Corpus | remark + gfm + html | 200.40 | 194.11 | 7410.1 | 0.43 | 0.05x |
 
 Raw benchmark data: `bench/results/latest.json`
 <!-- benchmark-report:end -->

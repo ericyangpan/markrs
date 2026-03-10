@@ -59,12 +59,26 @@ pub(crate) fn parse_inline_with_refs(
     pedantic: bool,
     refs: Option<&HashMap<String, ReferenceDefinition>>,
 ) -> Vec<Inline> {
+    parse_inline_with_refs_mode(input, gfm, pedantic, refs, gfm)
+}
+
+fn parse_inline_with_refs_mode(
+    input: &str,
+    gfm: bool,
+    pedantic: bool,
+    refs: Option<&HashMap<String, ReferenceDefinition>>,
+    allow_bare_autolinks: bool,
+) -> Vec<Inline> {
     if input.is_empty() {
         return Vec::new();
     }
 
     if !inline_fragment_needs_parse(input) {
-        return vec![Inline::Text(normalize_inline_plain_text(input.to_string()))];
+        let text = normalize_inline_plain_text(input.to_string());
+        if allow_bare_autolinks && gfm {
+            return autolink_text_nodes(text);
+        }
+        return vec![Inline::Text(text)];
     }
 
     let mut chars = Vec::with_capacity(input.len());
@@ -307,10 +321,16 @@ pub(crate) fn parse_inline_with_refs(
         );
     }
 
-    if has_delimiters {
+    let nodes = if has_delimiters {
         resolve_inline_parts(out)
     } else {
         inline_parts_into_nodes(out)
+    };
+
+    if allow_bare_autolinks && gfm {
+        apply_gfm_bare_autolinks(nodes)
+    } else {
+        nodes
     }
 }
 
@@ -347,7 +367,7 @@ fn parse_inline_fragment(
         return vec![Inline::Text(normalize_inline_plain_text(input.to_string()))];
     }
 
-    parse_inline_with_refs(input, gfm, pedantic, refs)
+    parse_inline_with_refs_mode(input, gfm, pedantic, refs, false)
 }
 
 fn inline_fragment_needs_parse(input: &str) -> bool {
@@ -462,6 +482,479 @@ fn push_inline_node(out: &mut Vec<Inline>, node: Inline) {
         }
         _ => out.push(node),
     }
+}
+
+#[derive(Clone, Copy)]
+struct TextAtom {
+    raw_start: usize,
+    raw_end: usize,
+    ch: char,
+}
+
+struct BareAutolinkCandidate {
+    end: usize,
+    href: String,
+}
+
+fn apply_gfm_bare_autolinks(nodes: Vec<Inline>) -> Vec<Inline> {
+    let mut stack = Vec::new();
+    apply_gfm_bare_autolinks_with_stack(nodes, &mut stack)
+}
+
+fn apply_gfm_bare_autolinks_with_stack(nodes: Vec<Inline>, stack: &mut Vec<String>) -> Vec<Inline> {
+    let mut out = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        match node {
+            Inline::RawHtml(html) => {
+                update_inline_html_stack(&html, stack);
+                out.push(Inline::RawHtml(html));
+            }
+            Inline::Text(text) => {
+                if should_skip_bare_autolink(stack) {
+                    push_inline_node(&mut out, Inline::Text(text));
+                } else {
+                    for node in autolink_text_nodes(text) {
+                        push_inline_node(&mut out, node);
+                    }
+                }
+            }
+            Inline::Em(children) => {
+                if should_skip_bare_autolink(stack) {
+                    out.push(Inline::Em(children));
+                } else {
+                    out.push(Inline::Em(apply_gfm_bare_autolinks_with_stack(
+                        children, stack,
+                    )));
+                }
+            }
+            Inline::Strong(children) => {
+                if should_skip_bare_autolink(stack) {
+                    out.push(Inline::Strong(children));
+                } else {
+                    out.push(Inline::Strong(apply_gfm_bare_autolinks_with_stack(
+                        children, stack,
+                    )));
+                }
+            }
+            Inline::Del(children) => {
+                if should_skip_bare_autolink(stack) {
+                    out.push(Inline::Del(children));
+                } else {
+                    out.push(Inline::Del(apply_gfm_bare_autolinks_with_stack(
+                        children, stack,
+                    )));
+                }
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn autolink_text_nodes(text: String) -> Vec<Inline> {
+    if text.is_empty() || !text_may_have_bare_autolink(&text) {
+        return vec![Inline::Text(text)];
+    }
+
+    let atoms = text_atoms(&text);
+    if atoms.is_empty() {
+        return vec![Inline::Text(text)];
+    }
+
+    let mut out = Vec::new();
+    let mut last_raw = 0usize;
+    let mut i = 0usize;
+    let mut found = false;
+
+    while i < atoms.len() {
+        let Some(candidate) = parse_bare_autolink_candidate(&atoms, i) else {
+            i += 1;
+            continue;
+        };
+
+        let raw_start = atoms[i].raw_start;
+        let raw_end = atoms[candidate.end - 1].raw_end;
+        if raw_start > last_raw {
+            push_inline_node(
+                &mut out,
+                Inline::Text(text[last_raw..raw_start].to_string()),
+            );
+        }
+
+        let label = text[raw_start..raw_end].to_string();
+        out.push(Inline::Link {
+            label: vec![Inline::Text(label)],
+            href: candidate.href,
+            title: None,
+        });
+        last_raw = raw_end;
+        i = candidate.end;
+        found = true;
+    }
+
+    if !found {
+        return vec![Inline::Text(text)];
+    }
+
+    if last_raw < text.len() {
+        push_inline_node(&mut out, Inline::Text(text[last_raw..].to_string()));
+    }
+
+    out
+}
+
+fn text_may_have_bare_autolink(text: &str) -> bool {
+    text.as_bytes()
+        .iter()
+        .any(|byte| matches!(*byte, b':' | b'@' | b'.'))
+}
+
+fn should_skip_bare_autolink(stack: &[String]) -> bool {
+    stack.iter().any(|tag| {
+        matches!(
+            tag.as_str(),
+            "a" | "code" | "pre" | "script" | "style" | "textarea"
+        )
+    })
+}
+
+fn update_inline_html_stack(tag: &str, stack: &mut Vec<String>) {
+    if tag.starts_with("<!--") || tag.starts_with("<!") || tag.starts_with("<?") {
+        return;
+    }
+
+    let Some(name) = parse_inline_html_tag_name(tag.trim_start_matches('<').trim_end_matches('>'))
+    else {
+        return;
+    };
+
+    let trimmed = tag.trim();
+    let is_end_tag = trimmed.starts_with("</");
+    let self_closing = trimmed.ends_with("/>");
+
+    if is_end_tag {
+        if let Some(pos) = stack.iter().rposition(|n| n == &name) {
+            stack.drain(pos..);
+        }
+        return;
+    }
+
+    if !self_closing && !is_inline_html_void_tag(&name) {
+        stack.push(name);
+    }
+}
+
+fn parse_inline_html_tag_name(tag_body: &str) -> Option<String> {
+    let mut chars = tag_body.chars().peekable();
+    while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
+        chars.next();
+    }
+
+    if matches!(chars.peek(), Some('/')) {
+        chars.next();
+    }
+
+    let mut name = String::new();
+    while let Some(c) = chars.peek().copied() {
+        if c.is_whitespace() || c == '/' || c == '>' {
+            break;
+        }
+        name.push(c.to_ascii_lowercase());
+        chars.next();
+    }
+
+    if name.is_empty() { None } else { Some(name) }
+}
+
+fn is_inline_html_void_tag(name: &str) -> bool {
+    matches!(
+        name,
+        "area"
+            | "base"
+            | "br"
+            | "col"
+            | "embed"
+            | "hr"
+            | "img"
+            | "input"
+            | "link"
+            | "meta"
+            | "param"
+            | "source"
+            | "track"
+            | "wbr"
+    )
+}
+
+fn text_atoms(text: &str) -> Vec<TextAtom> {
+    let mut atoms = Vec::with_capacity(text.len());
+    let mut indices = text.char_indices().peekable();
+    while let Some((start, ch)) = indices.next() {
+        let end = indices.peek().map(|(idx, _)| *idx).unwrap_or(text.len());
+        atoms.push(TextAtom {
+            raw_start: start,
+            raw_end: end,
+            ch,
+        });
+    }
+    atoms
+}
+
+fn parse_bare_autolink_candidate(
+    atoms: &[TextAtom],
+    start: usize,
+) -> Option<BareAutolinkCandidate> {
+    if !bare_autolink_start_boundary(atoms, start) {
+        return None;
+    }
+
+    parse_bare_url_candidate(atoms, start).or_else(|| parse_bare_email_candidate(atoms, start))
+}
+
+fn bare_autolink_start_boundary(atoms: &[TextAtom], start: usize) -> bool {
+    if start == 0 {
+        return true;
+    }
+    !matches!(
+        atoms[start - 1].ch,
+        'a'..='z' | 'A'..='Z' | '0'..='9' | '@' | '.' | '_' | '-' | '/' | ':'
+    )
+}
+
+fn parse_bare_url_candidate(atoms: &[TextAtom], start: usize) -> Option<BareAutolinkCandidate> {
+    if starts_with_www_atoms(atoms, start) {
+        let end = trim_generic_url_end_atoms(atoms, start, scan_url_end_atoms(atoms, start));
+        if end <= start + 4 {
+            return None;
+        }
+        return Some(BareAutolinkCandidate {
+            end,
+            href: format!("http://{}", collect_decoded_atoms(atoms, start, end)),
+        });
+    }
+
+    let (scheme_end, scheme) = parse_scheme_prefix_atoms(atoms, start)?;
+    if scheme_end >= atoms.len() || atoms[scheme_end].ch.is_whitespace() {
+        return None;
+    }
+
+    if scheme.eq_ignore_ascii_case("mailto") || scheme.eq_ignore_ascii_case("xmpp") {
+        return parse_emailish_scheme_candidate_atoms(atoms, start, scheme_end + 1, &scheme);
+    }
+
+    let end = trim_generic_url_end_atoms(atoms, start, scan_url_end_atoms(atoms, start));
+    if end <= scheme_end + 1 {
+        return None;
+    }
+
+    Some(BareAutolinkCandidate {
+        end,
+        href: collect_decoded_atoms(atoms, start, end),
+    })
+}
+
+fn parse_emailish_scheme_candidate_atoms(
+    atoms: &[TextAtom],
+    start: usize,
+    body_start: usize,
+    scheme: &str,
+) -> Option<BareAutolinkCandidate> {
+    let email_end = parse_email_body_atoms(atoms, body_start)?;
+    let mut end = email_end;
+
+    if scheme.eq_ignore_ascii_case("xmpp") && end < atoms.len() && atoms[end].ch == '/' {
+        let mut path_end = end + 1;
+        while path_end < atoms.len() && is_email_path_char(atoms[path_end].ch) {
+            path_end += 1;
+        }
+        if path_end > end + 1 {
+            end = path_end;
+        }
+    }
+
+    if matches!(atoms.get(end).map(|atom| atom.ch), Some('-' | '_')) {
+        return None;
+    }
+
+    Some(BareAutolinkCandidate {
+        end,
+        href: collect_decoded_atoms(atoms, start, end),
+    })
+}
+
+fn parse_bare_email_candidate(atoms: &[TextAtom], start: usize) -> Option<BareAutolinkCandidate> {
+    let end = parse_email_body_atoms(atoms, start)?;
+    if matches!(atoms.get(end).map(|atom| atom.ch), Some('-' | '_')) {
+        return None;
+    }
+
+    Some(BareAutolinkCandidate {
+        end,
+        href: format!("mailto:{}", collect_decoded_atoms(atoms, start, end)),
+    })
+}
+
+fn parse_email_body_atoms(atoms: &[TextAtom], start: usize) -> Option<usize> {
+    let mut i = start;
+    while i < atoms.len() && is_email_local_char(atoms[i].ch) {
+        i += 1;
+    }
+    if i == start || i >= atoms.len() || atoms[i].ch != '@' {
+        return None;
+    }
+    i += 1;
+
+    let mut labels = 0usize;
+    loop {
+        let label_start = i;
+        while i < atoms.len() && is_domain_label_char(atoms[i].ch) {
+            i += 1;
+        }
+        if i == label_start {
+            return None;
+        }
+        if atoms[label_start].ch == '-' || atoms[i - 1].ch == '-' {
+            return None;
+        }
+        labels += 1;
+        if i < atoms.len() && atoms[i].ch == '.' {
+            if i + 1 >= atoms.len() || !is_domain_label_char(atoms[i + 1].ch) {
+                break;
+            }
+            i += 1;
+            continue;
+        }
+        break;
+    }
+
+    if labels < 2 {
+        return None;
+    }
+
+    Some(i)
+}
+
+fn starts_with_www_atoms(atoms: &[TextAtom], start: usize) -> bool {
+    matches!(
+        (
+            atoms.get(start).map(|atom| atom.ch),
+            atoms.get(start + 1).map(|atom| atom.ch),
+            atoms.get(start + 2).map(|atom| atom.ch),
+            atoms.get(start + 3).map(|atom| atom.ch),
+        ),
+        (Some('w'), Some('w'), Some('w'), Some('.'))
+    )
+}
+
+fn parse_scheme_prefix_atoms(atoms: &[TextAtom], start: usize) -> Option<(usize, String)> {
+    let first = atoms.get(start)?.ch;
+    if !first.is_ascii_alphabetic() {
+        return None;
+    }
+
+    let mut i = start + 1;
+    while i < atoms.len()
+        && (atoms[i].ch.is_ascii_alphanumeric() || matches!(atoms[i].ch, '+' | '-' | '.'))
+    {
+        i += 1;
+    }
+    if i >= atoms.len() || atoms[i].ch != ':' {
+        return None;
+    }
+
+    let len = i - start;
+    if !(2..=32).contains(&len) {
+        return None;
+    }
+
+    Some((i, collect_decoded_atoms(atoms, start, i)))
+}
+
+fn scan_url_end_atoms(atoms: &[TextAtom], start: usize) -> usize {
+    let mut end = start;
+    while end < atoms.len() {
+        let ch = atoms[end].ch;
+        if ch.is_whitespace() || ch == '<' {
+            break;
+        }
+        end += 1;
+    }
+    end
+}
+
+fn trim_generic_url_end_atoms(atoms: &[TextAtom], start: usize, mut end: usize) -> usize {
+    loop {
+        if end <= start {
+            return end;
+        }
+
+        let last = atoms[end - 1].ch;
+        let mut trimmed = false;
+
+        if matches!(last, '.' | ',' | ':' | '!' | '?' | '"' | '\'') {
+            end -= 1;
+            trimmed = true;
+        } else if last == ';' {
+            if let Some(entity_start) = entity_like_suffix_start_atoms(atoms, start, end) {
+                end = entity_start;
+            } else {
+                end -= 1;
+            }
+            trimmed = true;
+        } else if last == ')' && unmatched_closing_parens_atoms(atoms, start, end) > 0 {
+            end -= 1;
+            trimmed = true;
+        }
+
+        if !trimmed {
+            break;
+        }
+    }
+
+    end
+}
+
+fn entity_like_suffix_start_atoms(atoms: &[TextAtom], start: usize, end: usize) -> Option<usize> {
+    if end <= start || atoms[end - 1].ch != ';' {
+        return None;
+    }
+
+    let mut i = end - 1;
+    while i > start && atoms[i - 1].ch.is_ascii_alphanumeric() {
+        i -= 1;
+    }
+    if i > start && atoms[i - 1].ch == '&' && i < end - 1 {
+        return Some(i - 1);
+    }
+    None
+}
+
+fn unmatched_closing_parens_atoms(atoms: &[TextAtom], start: usize, end: usize) -> usize {
+    let opens = atoms[start..end]
+        .iter()
+        .filter(|atom| atom.ch == '(')
+        .count();
+    let closes = atoms[start..end]
+        .iter()
+        .filter(|atom| atom.ch == ')')
+        .count();
+    closes.saturating_sub(opens)
+}
+
+fn collect_decoded_atoms(atoms: &[TextAtom], start: usize, end: usize) -> String {
+    atoms[start..end].iter().map(|atom| atom.ch).collect()
+}
+
+fn is_email_local_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '+' | '-')
+}
+
+fn is_domain_label_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '-'
+}
+
+fn is_email_path_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '+' | '-' | '@')
 }
 
 fn resolve_delimiter_runs(mut parts: Vec<InlinePart>) -> Vec<InlinePart> {
