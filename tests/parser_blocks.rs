@@ -242,13 +242,10 @@ fn parser_blocks_treat_tab_after_blockquote_marker_as_marker_padding() {
 }
 
 #[test]
-fn parser_blocks_preserve_tab_overhang_after_blockquote_marker_for_code_blocks() {
+fn parser_blocks_strip_tab_padding_after_blockquote_marker_for_code_blocks() {
     let html = render_markdown_to_html(">\t\tfoo\n", RenderOptions::default());
 
-    assert_eq!(
-        html,
-        "<blockquote><pre><code>  foo\n</code></pre>\n</blockquote>\n"
-    );
+    assert_eq!(html, "<blockquote><pre><code>foo\n</code></pre>\n</blockquote>\n");
 }
 
 #[test]
@@ -269,6 +266,13 @@ fn parser_blocks_preserve_tab_overhang_on_list_code_continuations() {
         html,
         "<ul><li><p>foo</p>\n<pre><code>  bar\n</code></pre>\n</li></ul>\n"
     );
+}
+
+#[test]
+fn parser_blocks_preserve_tab_after_leading_spaces_in_indented_code() {
+    let html = render_markdown_to_html("  \tfoo\tbaz\t\tbim", RenderOptions::default());
+
+    assert_eq!(html, "<pre><code>\tfoo\tbaz\t\tbim\n</code></pre>\n");
 }
 
 #[test]
@@ -385,6 +389,15 @@ fn parser_blocks_keep_html_blocks_open_until_blank_line() {
 }
 
 #[test]
+fn parser_blocks_preserve_tabs_in_html_blocks_and_comments() {
+    let md = "<div>\n\tfoo\n</div>\n\n<!--\n\tcomment\n-->\n";
+    let html = render_markdown_to_html(md, RenderOptions::default());
+
+    assert!(html.contains("<div>\n\tfoo\n</div>"));
+    assert!(html.contains("<!--\n\tcomment\n-->"));
+}
+
+#[test]
 fn parser_blocks_support_processing_instruction_and_cdata_html_blocks() {
     let md = "<?php\n\necho '>';\n\n?>\nokay\n\n<!DOCTYPE html>\n\n<![CDATA[\ncontent\n]]>\n";
     let html = render_markdown_to_html(md, RenderOptions::default());
@@ -488,7 +501,7 @@ fn parser_blocks_stop_table_before_following_blocks() {
 }
 
 #[test]
-fn parser_blocks_stop_table_before_following_fences_without_extra_code_newline() {
+fn parser_blocks_stop_table_before_following_fences_with_runtime_code_newline() {
     let with_pipes =
         "| abc | def |\n| --- | --- |\n| bar | foo |\n| baz | boo |\n```\nfoobar()\n```\n";
     let no_pipes = " abc | def\n --- | ---\n bar | foo\n baz | boo\n```\nfoobar()\n```\n";
@@ -496,8 +509,30 @@ fn parser_blocks_stop_table_before_following_fences_without_extra_code_newline()
     let html_with_pipes = render_markdown_to_html(with_pipes, RenderOptions::default());
     let html_no_pipes = render_markdown_to_html(no_pipes, RenderOptions::default());
 
-    assert!(html_with_pipes.contains("</table>\n<pre><code>foobar()</code></pre>"));
-    assert!(html_no_pipes.contains("</table>\n<pre><code>foobar()</code></pre>"));
+    assert!(html_with_pipes.contains("</table>\n<pre><code>foobar()\n</code></pre>"));
+    assert!(html_no_pipes.contains("</table>\n<pre><code>foobar()\n</code></pre>"));
+}
+
+#[test]
+fn parser_blocks_preserve_indented_code_spacing_after_tables() {
+    let with_pipes = "| abc | def |\n| --- | --- |\n| bar | foo |\n| baz | boo |\n    a simple\n      *indented* code block\n";
+    let no_pipes = "abc | def\n--- | ---\nbar | foo\nbaz | boo\n    a simple\n      *indented* code block\n";
+
+    let html_with_pipes = render_markdown_to_html(with_pipes, RenderOptions::default());
+    let html_no_pipes = render_markdown_to_html(no_pipes, RenderOptions::default());
+
+    assert!(html_with_pipes.contains("<pre><code>a simple\n  *indented* code block"));
+    assert!(html_no_pipes.contains("<pre><code>a simple\n  *indented* code block"));
+}
+
+#[test]
+fn parser_blocks_strip_fence_indent_only_when_content_reaches_fence_indent() {
+    let html = render_markdown_to_html(
+        "   ```\n   aaa\n    aaa\n  aaa\n   ```\n",
+        RenderOptions::default(),
+    );
+
+    assert_eq!(html, "<pre><code>aaa\n aaa\n  aaa\n</code></pre>\n");
 }
 
 #[test]

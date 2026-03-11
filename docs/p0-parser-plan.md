@@ -37,15 +37,15 @@ This is the standing work agreement for parser/runtime compatibility work. It ta
 
 Current baseline (2026-03-12 local report):
 
-- current-runtime compatibility: `1389` passed, `96` gaps
-- vendored snapshot compatibility: `1416` passed, `69` gaps
+- current-runtime compatibility: `1402` passed, `83` gaps
+- vendored snapshot compatibility: `1404` passed, `81` gaps
 - isolated benchmark reference:
   - `Comparable Corpus`: `1.57x` vs `marked`
   - `Marked Fixtures`: `1.46x` vs `marked`
 
 Default aggressive target:
 
-- reduce `tests/compat/runtime_xfail.yaml` from `96` to `0` before asking for a new direction
+- reduce `tests/compat/runtime_xfail.yaml` from `83` to `0` before asking for a new direction
 - keep `tests/compat/xfail.yaml` moving downward when the change also helps runtime parity, or when the remaining delta is intentionally classified as snapshot-only
 - preserve isolated benchmark guardrails while fixing compatibility:
   - `Comparable Corpus >= 1.25x` vs `marked`

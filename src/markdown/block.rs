@@ -298,21 +298,12 @@ fn parse_blocks_from_lines_mode(
                 content.push_str(&strip_code_fence_indent(line, fence_indent));
             }
             content.push('\n');
-            let follows_table_row = i > 0 && line_has_table_pipe(lines[i - 1]);
-            if follows_table_row && content.ends_with('\n') {
-                content.pop();
-            }
             blocks.push(ast::Block::CodeBlock { info, content });
             i = consumed;
             continue;
         }
 
         if let Some((content, consumed)) = parse_indented_code_block(lines, i) {
-            let content = if i > 0 && line_has_table_pipe(lines[i - 1]) {
-                strip_one_leading_space_per_line(&content)
-            } else {
-                content
-            };
             blocks.push(ast::Block::CodeBlock {
                 info: None,
                 content,
@@ -695,52 +686,16 @@ fn strip_indentation(line: &str) -> String {
     if is_markdown_blank(line) {
         return String::new();
     }
-    let expanded = detab_leading_whitespace(line);
-    if expanded.len() < 4 {
-        return String::new();
-    }
-    expanded[4..].to_string()
-}
 
-fn strip_one_leading_space_per_line(content: &str) -> String {
-    let had_trailing_newline = content.ends_with('\n');
-    let mut out = String::with_capacity(content.len());
-    for (idx, line) in content.lines().enumerate() {
-        if idx > 0 {
-            out.push('\n');
-        }
-        out.push_str(line.strip_prefix(' ').unwrap_or(line));
+    if let Some(rest) = line.strip_prefix('\t') {
+        return rest.to_string();
     }
-    if had_trailing_newline {
-        out.push('\n');
-    }
-    out
-}
 
-fn detab_leading_whitespace(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut cols = 0usize;
     let mut byte_idx = 0usize;
-
-    while byte_idx < line.len() {
-        match line.as_bytes()[byte_idx] {
-            b' ' => {
-                out.push(' ');
-                cols += 1;
-                byte_idx += 1;
-            }
-            b'\t' => {
-                let spaces = 4 - (cols % 4);
-                out.push_str(&" ".repeat(spaces));
-                cols += spaces;
-                byte_idx += 1;
-            }
-            _ => break,
-        }
+    while byte_idx < line.len() && byte_idx < 4 && line.as_bytes()[byte_idx] == b' ' {
+        byte_idx += 1;
     }
-
-    out.push_str(&line[byte_idx..]);
-    out
+    line[byte_idx..].to_string()
 }
 
 fn parse_list_block(
@@ -1239,6 +1194,10 @@ fn strip_code_fence_indent(line: &str, indent: usize) -> String {
         }
     }
 
+    if removed_cols < indent {
+        return line.to_string();
+    }
+
     line[byte_idx..].to_string()
 }
 
@@ -1352,6 +1311,13 @@ fn strip_single_padding_marker(rest: &str, start_col: usize) -> String {
     out
 }
 
+fn strip_blockquote_padding_marker(rest: &str) -> String {
+    match rest.as_bytes().first().copied() {
+        Some(b' ' | b'\t') => rest[1..].to_string(),
+        _ => rest.to_string(),
+    }
+}
+
 fn parse_task_prefix(text: &str) -> (&str, Option<bool>) {
     let trimmed = text.trim_start();
     if let Some(rest) = trimmed.strip_prefix("[ ]") {
@@ -1461,7 +1427,7 @@ fn parse_blockquote_block(lines: &[&str], start: usize) -> Option<(usize, Vec<St
         }
 
         if let Some(rest) = raw.strip_prefix('>') {
-            let rest = strip_single_padding_marker(rest, inner_indent + 1);
+            let rest = strip_blockquote_padding_marker(rest);
             if let Some((fence_char, fence_len)) = open_fence {
                 if is_fenced_code_close(&rest, fence_char, fence_len) {
                     open_fence = None;
@@ -1520,7 +1486,7 @@ fn blockquote_content_allows_lazy_continuation(rest: &str) -> bool {
     }
 
     if let Some(nested_quote) = content.strip_prefix('>') {
-        let nested_quote = strip_single_padding_marker(nested_quote, marker.end + 1);
+        let nested_quote = strip_blockquote_padding_marker(nested_quote);
         return !nested_quote.is_empty()
             && !is_indented_code_line(&nested_quote)
             && !is_block_boundary_without_quote(Some(&nested_quote), false);
@@ -1972,36 +1938,19 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
 }
 
 fn expand_tabs_html(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    push_expanded_tabs_html(&mut out, line);
-    out
-}
-
-fn push_expanded_tabs_html(out: &mut String, line: &str) {
-    for ch in line.chars() {
-        if ch == '\t' {
-            out.push_str("    ");
-        } else {
-            out.push(ch);
-        }
-    }
+    line.to_string()
 }
 
 fn join_html_block_lines(lines: &[&str]) -> String {
-    let extra_tab_spaces = lines
-        .iter()
-        .map(|line| line.bytes().filter(|byte| *byte == b'\t').count() * 3)
-        .sum::<usize>();
     let mut out = String::with_capacity(
         lines.iter().map(|line| line.len()).sum::<usize>()
-            + lines.len().saturating_sub(1)
-            + extra_tab_spaces,
+            + lines.len().saturating_sub(1),
     );
     for (idx, line) in lines.iter().copied().enumerate() {
         if idx > 0 {
             out.push('\n');
         }
-        push_expanded_tabs_html(&mut out, line);
+        out.push_str(line);
     }
     out
 }

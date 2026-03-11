@@ -27,8 +27,8 @@ Acceptance criteria:
 
 Default aggressive execution target:
 
-- Drive current-runtime compatibility to parity by reducing `tests/compat/runtime_xfail.yaml` from the current `96` gaps to `0`.
-- Keep `tests/compat/xfail.yaml` on a downward trend from the current `69` gaps, but do not trade away runtime parity just to satisfy stale vendored snapshots.
+- Drive current-runtime compatibility to parity by reducing `tests/compat/runtime_xfail.yaml` from the current `83` gaps to `0`.
+- Keep `tests/compat/xfail.yaml` on a downward trend from the current `81` gaps, but do not trade away runtime parity just to satisfy stale vendored snapshots.
 - Preserve benchmark guardrails while reducing compatibility gaps:
   - `Comparable Corpus >= 1.25x` vs `marked`
   - `Marked Fixtures >= 1.00x` vs `marked`
