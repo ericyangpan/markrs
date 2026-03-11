@@ -43,6 +43,7 @@ For agents:
 - Check `git status --short` before editing.
 - Assume the source of truth is code plus tests, not older roadmap notes.
 - Prefer the narrowest validation that proves the change, then run broader gates if parser behavior changed.
+- For P0 parser/runtime compatibility work, follow the autonomous execution loop in `docs/p0-parser-plan.md` and keep iterating until one of its escalation conditions triggers.
 - Do not update `tests/compat/xfail.yaml` or `tests/compat/runtime_xfail.yaml` unless the behavior change is intentional and verified.
 - Do not edit `third_party/marked/*` unless the task is explicitly about fixture sync.
 
@@ -70,6 +71,7 @@ For agents:
 `docs/requirements.md`, `docs/p0-parser-plan.md`, `docs/p0-parser-design.md`
 
 - Project direction
+- Autonomous execution target and escalation conditions
 - Parser roadmap and detailed design
 
 ## Documentation Scope

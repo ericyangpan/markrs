@@ -1,6 +1,6 @@
 # P0 Parser Rebuild Plan
 
-Last updated: 2026-03-06
+Last updated: 2026-03-12
 
 ## Goal
 
@@ -30,6 +30,44 @@ Detailed design:
   - `npm run test:own`
   - `npm run test:compat`
 - `tests/compat/xfail.yaml` is allowed during migration, but trend must be downward.
+
+## Autonomous Execution Loop
+
+This is the standing work agreement for parser/runtime compatibility work. It takes precedence over the older dated execution notes later in this file.
+
+Current baseline (2026-03-12 local report):
+
+- current-runtime compatibility: `1389` passed, `96` gaps
+- vendored snapshot compatibility: `1416` passed, `69` gaps
+- isolated benchmark reference:
+  - `Comparable Corpus`: `1.57x` vs `marked`
+  - `Marked Fixtures`: `1.46x` vs `marked`
+
+Default aggressive target:
+
+- reduce `tests/compat/runtime_xfail.yaml` from `96` to `0` before asking for a new direction
+- keep `tests/compat/xfail.yaml` moving downward when the change also helps runtime parity, or when the remaining delta is intentionally classified as snapshot-only
+- preserve isolated benchmark guardrails while fixing compatibility:
+  - `Comparable Corpus >= 1.25x` vs `marked`
+  - `Marked Fixtures >= 1.00x` vs `marked`
+
+Default batch loop:
+
+1. Pick the highest-yield cluster from `tests/compat/runtime_xfail.yaml`.
+2. Make the narrowest parser or renderer change that removes a real mismatch category.
+3. Add or promote focused regression coverage near the affected layer.
+4. Run focused tests, then `npm run check:strict`, then `npm run test:compat`.
+5. If hot paths changed, run `npm run bench` in isolation.
+6. Update `tests/compat/runtime_xfail.yaml` and `tests/compat/xfail.yaml` only when the behavior change is intentional and verified.
+7. Commit the batch and continue to the next cluster without waiting for approval.
+
+Escalate only when:
+
+- a fix requires changing the public API, CLI behavior, package contract, or documented default semantics
+- a fix requires editing `third_party/marked/*` or changing the vendored/current `marked` version target
+- runtime and snapshot targets require conflicting behavior that the current harness cannot represent cleanly
+- three consecutive well-scoped batches produce no net reduction in runtime gaps
+- a correctness fix would push isolated benchmark results below the guardrail floor
 
 ## Architecture Split
 
