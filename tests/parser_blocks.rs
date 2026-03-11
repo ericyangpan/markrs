@@ -287,7 +287,7 @@ fn parser_blocks_empty_list_item_after_blank_line_does_not_absorb_paragraph() {
     let md = "-\n\n  foo\n";
     let html = render_markdown_to_html(md, RenderOptions::default());
 
-    assert_eq!(html, "<ul><li></li></ul>\n<p>foo</p>\n");
+    assert_eq!(html, "<ul><li></li></ul>\n<p>  foo</p>\n");
 }
 
 #[test]
@@ -302,11 +302,22 @@ fn parser_blocks_bare_list_marker_does_not_start_setext_heading() {
 }
 
 #[test]
-fn parser_blocks_strip_all_continuation_indent_from_paragraph_lines() {
+fn parser_blocks_preserve_continuation_indent_in_paragraph_lines() {
     let md = "aaa\n             bbb\n                                       ccc\n";
     let html = render_markdown_to_html(md, RenderOptions::default());
 
-    assert_eq!(html, "<p>aaa\nbbb\nccc</p>\n");
+    assert_eq!(html, "<p>aaa\n             bbb\n                                       ccc</p>\n");
+}
+
+#[test]
+fn parser_blocks_keep_indented_table_like_lines_literal_when_table_parse_fails() {
+    let md = "| abc | def |\n            | --- | --- |\n            | bar | foo |\n            | baz | boo |\n";
+    let html = render_markdown_to_html(md, RenderOptions::default());
+
+    assert_eq!(
+        html,
+        "<p>| abc | def |\n            | --- | --- |\n            | bar | foo |\n            | baz | boo |</p>\n"
+    );
 }
 
 #[test]
@@ -314,7 +325,7 @@ fn parser_blocks_trim_trailing_spaces_from_final_paragraph_line() {
     let md = "foo  \n     bar\n\nfoo  \n";
     let html = render_markdown_to_html(md, RenderOptions::default());
 
-    assert_eq!(html, "<p>foo<br>\nbar</p>\n<p>foo</p>\n");
+    assert_eq!(html, "<p>foo<br>\n     bar</p>\n<p>foo</p>\n");
 }
 
 #[test]
@@ -588,7 +599,7 @@ fn parser_blocks_parse_pedantic_hash_headings_without_space() {
 
     assert!(html.contains("<h1>h1</h1>"));
     assert!(html.contains("<h1>h1 #</h1>"));
-    assert!(html.contains("<p># h1</p>"));
+    assert!(html.contains("<p> # h1</p>"));
 }
 
 #[test]

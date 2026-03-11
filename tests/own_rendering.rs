@@ -126,3 +126,11 @@ fn own_loose_task_items_render_checkbox_inside_paragraph_and_empty_task_stays_li
     assert!(html.contains("<li><p><input type=\"checkbox\" disabled=\"\"> <pre>Task2</pre></p>"));
     assert!(html.contains("<li><p>[ ]</p>"));
 }
+
+#[test]
+fn own_tight_task_item_html_block_does_not_leave_trailing_newline_before_item_close() {
+    let md = "- [x] <div>\n  *html*\n  </div>\n  *html*\n";
+    let html = render_markdown_to_html(md, RenderOptions::default());
+
+    assert!(html.contains("<li><input type=\"checkbox\" checked=\"\" disabled=\"\"> <div>\n<em>html</em></div>\n*html*</li>"));
+}

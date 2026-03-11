@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::markdown::ast::{self, inline::Inline};
 use crate::markdown::lexer::Line;
@@ -108,7 +108,7 @@ impl BlockParseContext {
             }
         }
 
-        parse_blocks_from_lines_mode(lines, gfm, pedantic, &mut self.refs, allow_ref_defs)
+        parse_blocks_from_lines_mode(lines, gfm, pedantic, &mut self.refs, allow_ref_defs, true)
     }
 
     pub(crate) fn parse_line_slices<'a>(
@@ -209,6 +209,7 @@ pub(crate) fn parse_blocks_from_lines(
         pedantic,
         refs,
         has_potential_reference_definition(lines),
+        false,
     )
 }
 
@@ -218,6 +219,7 @@ fn parse_blocks_from_lines_mode(
     pedantic: bool,
     refs: &mut HashMap<String, ReferenceDefinition>,
     allow_ref_defs: bool,
+    preserve_paragraph_leading_indent: bool,
 ) -> ast::Document {
     let mut i = 0usize;
     let mut blocks = Vec::new();
@@ -282,11 +284,19 @@ fn parse_blocks_from_lines_mode(
             }
             .min(lines.len());
 
-            let mut content = lines[i + 1..content_end]
-                .iter()
-                .map(|line| strip_code_fence_indent(line, fence_indent))
-                .collect::<Vec<_>>()
-                .join("\n");
+            let mut content = String::with_capacity(
+                lines[i + 1..content_end]
+                    .iter()
+                    .map(|line| line.len())
+                    .sum::<usize>()
+                    + content_end.saturating_sub(i + 2),
+            );
+            for (idx, line) in lines[i + 1..content_end].iter().copied().enumerate() {
+                if idx > 0 {
+                    content.push('\n');
+                }
+                content.push_str(&strip_code_fence_indent(line, fence_indent));
+            }
             content.push('\n');
             let follows_table_row = i > 0 && line_has_table_pipe(lines[i - 1]);
             if follows_table_row && content.ends_with('\n') {
@@ -336,7 +346,15 @@ fn parse_blocks_from_lines_mode(
             continue;
         }
 
-        let (nodes, consumed) = parse_paragraph(&lines, i, gfm, pedantic, refs, allow_ref_defs);
+        let (nodes, consumed) = parse_paragraph(
+            &lines,
+            i,
+            gfm,
+            pedantic,
+            refs,
+            allow_ref_defs,
+            preserve_paragraph_leading_indent,
+        );
         blocks.push(ast::Block::Paragraph { inlines: nodes });
         i = consumed;
     }
@@ -619,28 +637,17 @@ fn parse_fenced_code_block(
         return None;
     }
     let info = decode_html_entities(raw_info);
+    let info = (!info.is_empty()).then_some(info);
 
     let mut end = start + 1;
     while end < lines.len() {
         if is_fenced_code_close(lines[end], fence_char, fence_len) {
-            return Some((
-                true,
-                (!info.is_empty()).then_some(info.to_string()),
-                end + 1,
-                true,
-                indent,
-            ));
+            return Some((true, info, end + 1, true, indent));
         }
         end += 1;
     }
 
-    Some((
-        true,
-        (!info.is_empty()).then_some(info.to_string()),
-        lines.len(),
-        false,
-        indent,
-    ))
+    Some((true, info, lines.len(), false, indent))
 }
 
 fn parse_indented_code_block(lines: &[&str], start: usize) -> Option<(String, usize)> {
@@ -663,11 +670,19 @@ fn parse_indented_code_block(lines: &[&str], start: usize) -> Option<(String, us
         break;
     }
 
-    let mut raw = lines[start..=i]
-        .iter()
-        .map(|line| strip_indentation(line))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut raw = String::with_capacity(
+        lines[start..=i]
+            .iter()
+            .map(|line| line.len())
+            .sum::<usize>()
+            + i.saturating_sub(start),
+    );
+    for (idx, line) in lines[start..=i].iter().copied().enumerate() {
+        if idx > 0 {
+            raw.push('\n');
+        }
+        raw.push_str(&strip_indentation(line));
+    }
     raw.push('\n');
     Some((raw, i + 1))
 }
@@ -689,11 +704,13 @@ fn strip_indentation(line: &str) -> String {
 
 fn strip_one_leading_space_per_line(content: &str) -> String {
     let had_trailing_newline = content.ends_with('\n');
-    let mut out = content
-        .lines()
-        .map(|line| line.strip_prefix(' ').unwrap_or(line))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut out = String::with_capacity(content.len());
+    for (idx, line) in content.lines().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        out.push_str(line.strip_prefix(' ').unwrap_or(line));
+    }
     if had_trailing_newline {
         out.push('\n');
     }
@@ -867,13 +884,10 @@ fn parse_list_item(
     });
     for raw in lines.iter().skip(1) {
         let (raw_indent, _) = split_leading_ws(raw);
-        let normalized = if pedantic {
-            normalize_pedantic_list_nesting(raw)
-        } else {
-            (*raw).to_string()
-        };
-        let (indent, text) = split_leading_ws(&normalized);
-        let stripped = strip_leading_content_indent(&normalized, content_indent);
+        let normalized = normalize_pedantic_list_line(raw, pedantic);
+        let normalized = normalized.as_ref();
+        let (indent, text) = split_leading_ws(normalized);
+        let stripped = strip_leading_content_indent(normalized, content_indent);
         let pedantic_nested_list =
             pedantic && raw_indent > first_indent && list_marker(text).is_some();
         if indent < content_indent && !text.is_empty() && !pedantic_nested_list {
@@ -934,13 +948,10 @@ fn collect_list_item_with_content_indent(
             continue;
         }
 
-        let normalized_next = if pedantic {
-            normalize_pedantic_list_nesting(next)
-        } else {
-            next.to_string()
-        };
+        let normalized_next = normalize_pedantic_list_line(next, pedantic);
+        let normalized_next = normalized_next.as_ref();
         let (raw_indent, _) = split_leading_ws(next);
-        let (indent, text) = split_leading_ws(&normalized_next);
+        let (indent, text) = split_leading_ws(normalized_next);
         if !has_initial_content && indent <= item_indent {
             break;
         }
@@ -1010,6 +1021,14 @@ fn collect_list_item_with_content_indent(
     }
 
     (end.min(lines.len()), saw_blank)
+}
+
+fn normalize_pedantic_list_line(line: &str, pedantic: bool) -> Cow<'_, str> {
+    if pedantic {
+        Cow::Owned(normalize_pedantic_list_nesting(line))
+    } else {
+        Cow::Borrowed(line)
+    }
 }
 
 fn normalize_pedantic_list_nesting(line: &str) -> String {
@@ -1108,12 +1127,8 @@ fn list_item_has_top_level_blank_break(
             continue;
         }
 
-        let normalized = if pedantic {
-            normalize_pedantic_list_nesting(raw)
-        } else {
-            (*raw).to_string()
-        };
-        let dedented = strip_leading_content_indent(&normalized, content_indent);
+        let normalized = normalize_pedantic_list_line(raw, pedantic);
+        let dedented = strip_leading_content_indent(normalized.as_ref(), content_indent);
         let (indent, text) = split_leading_ws(&dedented);
         if parse_reference_definition(text, pedantic).is_some()
             || list_marker(text).is_some()
@@ -1149,12 +1164,8 @@ fn list_item_has_top_level_blank_indented_code(
             continue;
         }
 
-        let normalized = if pedantic {
-            normalize_pedantic_list_nesting(raw)
-        } else {
-            (*raw).to_string()
-        };
-        let dedented = strip_leading_content_indent(&normalized, content_indent);
+        let normalized = normalize_pedantic_list_line(raw, pedantic);
+        let dedented = strip_leading_content_indent(normalized.as_ref(), content_indent);
         if is_indented_code_line(&dedented) {
             return true;
         }
@@ -1961,15 +1972,38 @@ fn parse_html_block(lines: &[&str], start: usize) -> Option<(ast::Block, usize)>
 }
 
 fn expand_tabs_html(line: &str) -> String {
-    line.replace('\t', "    ")
+    let mut out = String::with_capacity(line.len());
+    push_expanded_tabs_html(&mut out, line);
+    out
+}
+
+fn push_expanded_tabs_html(out: &mut String, line: &str) {
+    for ch in line.chars() {
+        if ch == '\t' {
+            out.push_str("    ");
+        } else {
+            out.push(ch);
+        }
+    }
 }
 
 fn join_html_block_lines(lines: &[&str]) -> String {
-    lines
+    let extra_tab_spaces = lines
         .iter()
-        .map(|line| expand_tabs_html(line))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .map(|line| line.bytes().filter(|byte| *byte == b'\t').count() * 3)
+        .sum::<usize>();
+    let mut out = String::with_capacity(
+        lines.iter().map(|line| line.len()).sum::<usize>()
+            + lines.len().saturating_sub(1)
+            + extra_tab_spaces,
+    );
+    for (idx, line) in lines.iter().copied().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        push_expanded_tabs_html(&mut out, line);
+    }
+    out
 }
 
 fn is_block_boundary_without_quote(next_line: Option<&str>, pedantic: bool) -> bool {
@@ -2148,13 +2182,14 @@ fn parse_table_header(
         return None;
     }
 
-    let parts = if text.contains('|') {
-        split_table_cells(text)
-    } else if columns == 1 {
-        vec![text.to_string()]
-    } else {
-        return None;
-    };
+    if !text.contains('|') {
+        if columns != 1 {
+            return None;
+        }
+        return Some(vec![parse_block_inlines(text, gfm, pedantic, refs)]);
+    }
+
+    let parts = split_table_cells(text);
     if parts.is_empty() || parts.len() != columns {
         return None;
     }
@@ -2174,13 +2209,14 @@ fn parse_table_row(
         return None;
     }
 
-    let parts = if text.contains('|') {
-        split_table_cells(text)
-    } else if columns == 1 {
-        vec![text.to_string()]
-    } else {
-        return None;
-    };
+    if !text.contains('|') {
+        if columns != 1 {
+            return None;
+        }
+        return Some(vec![parse_block_inlines(text, gfm, pedantic, refs)]);
+    }
+
+    let parts = split_table_cells(text);
     if parts.is_empty() {
         return None;
     }
@@ -2199,7 +2235,7 @@ fn parse_table_parts(
         .iter()
         .map(|cell| {
             let normalized = unescape_table_cell(cell);
-            parse_block_inlines(normalized.trim(), gfm, pedantic, refs)
+            parse_block_inlines(normalized.as_ref().trim(), gfm, pedantic, refs)
         })
         .collect::<Vec<_>>();
     while row.len() < columns {
@@ -2209,8 +2245,11 @@ fn parse_table_parts(
     row
 }
 
-fn unescape_table_cell(cell: &str) -> String {
-    cell.replace("\\|", "|")
+fn unescape_table_cell(cell: &str) -> Cow<'_, str> {
+    if !cell.contains(r"\|") {
+        return Cow::Borrowed(cell);
+    }
+    Cow::Owned(cell.replace(r"\|", "|"))
 }
 
 fn parse_table_tail_row(
@@ -2397,59 +2436,57 @@ fn parse_reference_destination(raw: &str) -> Option<(String, &str)> {
 
 fn parse_ref_title_and_consumed(raw: &str, pedantic: bool) -> Option<(String, usize)> {
     let raw = raw.trim_start();
-    if raw.is_empty() {
-        return None;
-    }
-    let chars = raw.chars().collect::<Vec<_>>();
-    let quote_end = if chars.first().copied() == Some('"') || chars.first().copied() == Some('\'') {
-        chars[0]
-    } else if chars.first().copied() == Some('(') {
-        ')'
-    } else {
-        return None;
+    let opener = raw.chars().next()?;
+    let quote_end = match opener {
+        '"' | '\'' => opener,
+        '(' => ')',
+        _ => return None,
     };
 
-    let end = if pedantic && matches!(chars.first().copied(), Some('"' | '\'')) {
-        find_last_unescaped_reference_title_close(&chars, quote_end)?
+    let end = if pedantic && matches!(opener, '"' | '\'') {
+        find_last_unescaped_reference_title_close(raw, quote_end)?
     } else {
-        find_first_unescaped_reference_title_close(&chars, quote_end)?
+        find_first_unescaped_reference_title_close(raw, quote_end)?
     };
 
-    let title = decode_html_entities(&unescape_reference_text(
-        &chars[1..end].iter().collect::<String>(),
-    ));
-    let consumed = chars[..=end].iter().collect::<String>().len();
+    let opener_len = opener.len_utf8();
+    let title = decode_html_entities(&unescape_reference_text(&raw[opener_len..end]));
+    let consumed = end + quote_end.len_utf8();
     Some((title, consumed))
 }
 
-fn find_first_unescaped_reference_title_close(chars: &[char], quote_end: char) -> Option<usize> {
-    let mut end = 1usize;
-    while end < chars.len() {
-        if chars[end] == '\\' && end + 1 < chars.len() {
-            end += 2;
+fn find_first_unescaped_reference_title_close(raw: &str, quote_end: char) -> Option<usize> {
+    let mut chars = raw.char_indices();
+    chars.next()?;
+
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '\\' {
+            chars.next();
             continue;
         }
-        if chars[end] == quote_end {
-            return Some(end);
+        if ch == quote_end {
+            return Some(idx);
         }
-        end += 1;
     }
+
     None
 }
 
-fn find_last_unescaped_reference_title_close(chars: &[char], quote_end: char) -> Option<usize> {
+fn find_last_unescaped_reference_title_close(raw: &str, quote_end: char) -> Option<usize> {
+    let mut chars = raw.char_indices();
+    chars.next()?;
+
     let mut candidate = None;
-    let mut end = 1usize;
-    while end < chars.len() {
-        if chars[end] == '\\' && end + 1 < chars.len() {
-            end += 2;
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '\\' {
+            chars.next();
             continue;
         }
-        if chars[end] == quote_end {
-            candidate = Some(end);
+        if ch == quote_end {
+            candidate = Some(idx);
         }
-        end += 1;
     }
+
     candidate
 }
 
@@ -2639,6 +2676,7 @@ fn parse_paragraph(
     pedantic: bool,
     refs: &mut HashMap<String, ReferenceDefinition>,
     allow_ref_defs: bool,
+    preserve_leading_indent: bool,
 ) -> (Vec<Inline>, usize) {
     let mut acc = String::new();
     let mut i = start;
@@ -2677,7 +2715,7 @@ fn parse_paragraph(
             break;
         }
 
-        let line = normalize_paragraph_indent(raw_line);
+        let line = normalize_paragraph_indent(raw_line, preserve_leading_indent);
         if !acc.is_empty() {
             acc.push('\n');
         }
@@ -2692,12 +2730,12 @@ fn parse_paragraph(
                 start + 1,
             );
         }
-        let trimmed = acc.trim_end_matches([' ', '\t']).to_string();
-        return (parse_block_inlines(&trimmed, gfm, pedantic, refs), i);
+        let trimmed = acc.trim_end_matches([' ', '\t']);
+        return (parse_block_inlines(trimmed, gfm, pedantic, refs), i);
     }
 
-    let trimmed = acc.trim_end_matches([' ', '\t']).to_string();
-    (parse_block_inlines(&trimmed, gfm, pedantic, refs), i)
+    let trimmed = acc.trim_end_matches([' ', '\t']);
+    (parse_block_inlines(trimmed, gfm, pedantic, refs), i)
 }
 
 fn html_block_interrupts_paragraph(lines: &[&str], i: usize) -> bool {
@@ -2737,12 +2775,17 @@ fn html_block_interrupts_paragraph(lines: &[&str], i: usize) -> bool {
     false
 }
 
-fn normalize_paragraph_indent(line: &str) -> &str {
-    trim_paragraph_line(strip_forced_paragraph_prefix(line))
+fn normalize_paragraph_indent(line: &str, preserve_leading_indent: bool) -> &str {
+    let line = strip_forced_paragraph_prefix(line);
+    if preserve_leading_indent {
+        line
+    } else {
+        trim_paragraph_line(line)
+    }
 }
 
 fn trim_setext_heading_line(line: &str) -> &str {
-    normalize_paragraph_indent(line).trim_end_matches([' ', '\t'])
+    trim_paragraph_line(strip_forced_paragraph_prefix(line)).trim_end_matches([' ', '\t'])
 }
 
 fn trim_paragraph_line(line: &str) -> &str {
@@ -2755,13 +2798,28 @@ fn parse_block_inlines(
     pedantic: bool,
     refs: &mut HashMap<String, ReferenceDefinition>,
 ) -> Vec<Inline> {
-    let normalized = line
-        .lines()
-        .map(strip_lazy_prefix)
-        .map(strip_forced_paragraph_prefix)
-        .collect::<Vec<_>>()
-        .join("\n");
-    crate::markdown::inline::InlineParser::with_refs(&normalized, gfm, pedantic, refs).parse()
+    let normalized = normalize_block_inline_input(line);
+    crate::markdown::inline::InlineParser::with_refs(normalized.as_ref(), gfm, pedantic, refs)
+        .parse()
+}
+
+fn normalize_block_inline_input(line: &str) -> Cow<'_, str> {
+    if !line.contains(LAZY_QUOTE_PREFIX) && !line.contains(FORCED_PARAGRAPH_PREFIX) {
+        return Cow::Borrowed(line);
+    }
+
+    if !line.contains('\n') {
+        return Cow::Borrowed(strip_forced_paragraph_prefix(strip_lazy_prefix(line)));
+    }
+
+    let mut out = String::with_capacity(line.len());
+    for raw_line in line.lines() {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(strip_forced_paragraph_prefix(strip_lazy_prefix(raw_line)));
+    }
+    Cow::Owned(out)
 }
 
 fn force_paragraph_line(line: &str) -> String {

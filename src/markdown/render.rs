@@ -190,6 +190,10 @@ fn render_tight_list_item(
             _ => render_block(child, out, options),
         }
     }
+
+    if matches!(children.last(), Some(ast::Block::HtmlBlock(_))) && out.ends_with('\n') {
+        out.pop();
+    }
 }
 
 fn render_tight_list_separator(
