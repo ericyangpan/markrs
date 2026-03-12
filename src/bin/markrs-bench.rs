@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use markrs::{RenderOptions, render_markdown_to_html};
+use markrs::{RenderOptions, render_markdown_to_html_buf};
 use pulldown_cmark::{Options as PulldownOptions, Parser as PulldownParser, html};
 use serde::{Deserialize, Serialize};
 
@@ -107,16 +107,21 @@ fn render_pulldown_to_html(doc: &str, options: SuiteOptions) -> String {
 fn render_suite(engine: EngineArg, docs: &[String], options: SuiteOptions) -> (usize, u64) {
     let mut output_bytes = 0usize;
     let mut hasher = DefaultHasher::new();
+    let mut buf = String::with_capacity(4096);
 
     for doc in docs {
-        let html = match engine {
+        match engine {
             EngineArg::Markrs => {
-                render_markdown_to_html(doc, suite_options_to_render_options(options))
+                render_markdown_to_html_buf(doc, suite_options_to_render_options(options), &mut buf);
+                output_bytes += buf.len();
+                buf.hash(&mut hasher);
             }
-            EngineArg::PulldownCmark => render_pulldown_to_html(doc, options),
+            EngineArg::PulldownCmark => {
+                let html = render_pulldown_to_html(doc, options);
+                output_bytes += html.len();
+                html.hash(&mut hasher);
+            }
         };
-        output_bytes += html.len();
-        html.hash(&mut hasher);
     }
 
     (output_bytes, hasher.finish())

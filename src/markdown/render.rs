@@ -1,19 +1,23 @@
-use std::fmt::Write as _;
-
 use crate::RenderOptions;
 use crate::markdown::ast::{self, inline::Inline};
 
-pub(crate) fn render_document(doc: &ast::Document, options: RenderOptions) -> String {
-    let mut out = String::new();
+static HEADING_OPEN: [&str; 7] = ["", "<h1>", "<h2>", "<h3>", "<h4>", "<h5>", "<h6>"];
+static HEADING_CLOSE: [&str; 7] = ["", "</h1>\n", "</h2>\n", "</h3>\n", "</h4>\n", "</h5>\n", "</h6>\n"];
 
+pub(crate) fn render_document(doc: &ast::Document, options: RenderOptions, input_len: usize) -> String {
+    let mut out = String::with_capacity(input_len + input_len / 2);
+    render_document_into(doc, options, &mut out);
+    out
+}
+
+pub(crate) fn render_document_into(doc: &ast::Document, options: RenderOptions, out: &mut String) {
     match doc {
         ast::Document::Nodes(blocks) => {
             for block in blocks {
-                render_block(block, &mut out, options);
+                render_block(block, out, options);
             }
         }
     }
-    out
 }
 
 fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
@@ -24,9 +28,10 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
             out.push_str("</p>\n");
         }
         ast::Block::Heading { level, inlines } => {
-            write!(out, "<h{level}>").expect("write heading");
+            let l = *level as usize;
+            out.push_str(HEADING_OPEN[l]);
             render_inlines(inlines, out, options);
-            write!(out, "</h{level}>\n").expect("write heading close");
+            out.push_str(HEADING_CLOSE[l]);
         }
         ast::Block::List {
             ordered,
@@ -38,6 +43,7 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
                 if *start == 1 {
                     out.push_str("<ol>");
                 } else {
+                    use std::fmt::Write as _;
                     write!(out, "<ol start=\"{start}\">").expect("write ordered list start");
                 }
             } else {
@@ -104,15 +110,15 @@ fn render_block(block: &ast::Block, out: &mut String, options: RenderOptions) {
             {
                 if !language.is_empty() {
                     out.push_str("<pre><code class=\"language-");
-                    out.push_str(&escape_html(&language));
+                    escape_html_to(&language, out);
                     out.push_str("\">");
-                    out.push_str(&escape_html(content));
+                    escape_html_to(content, out);
                     out.push_str("</code></pre>\n");
                     return;
                 }
             }
             out.push_str("<pre><code>");
-            out.push_str(&escape_html(content));
+            escape_html_to(content, out);
             out.push_str("</code></pre>\n");
         }
         ast::Block::ThematicBreak => {
@@ -210,7 +216,7 @@ fn render_tight_list_separator(
 fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) {
     for inline in inlines {
         match inline {
-            Inline::Text(text) => out.push_str(&escape_html(text)),
+            Inline::Text(text) => escape_html_to(text, out),
             Inline::RawHtml(html) => render_raw_html(html, out, options),
             Inline::SoftBreak => {
                 if options.breaks {
@@ -222,7 +228,7 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
             Inline::HardBreak => out.push_str("<br>\n"),
             Inline::Code(text) => {
                 out.push_str("<code>");
-                out.push_str(&escape_html(text));
+                escape_html_to(text, out);
                 out.push_str("</code>");
             }
             Inline::Em(children) => {
@@ -242,11 +248,11 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
             }
             Inline::Link { label, href, title } => {
                 out.push_str("<a href=\"");
-                out.push_str(&escape_href_attr(href));
+                escape_href_attr_to(href, out);
                 out.push('"');
                 if let Some(title) = title {
                     out.push_str(" title=\"");
-                    out.push_str(&escape_html_attr(title));
+                    escape_html_attr_to(title, out);
                     out.push('"');
                 }
                 out.push('>');
@@ -255,13 +261,14 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
             }
             Inline::Image { alt, src, title } => {
                 out.push_str("<img src=\"");
-                out.push_str(&escape_html_attr(src));
+                escape_html_attr_to(src, out);
                 out.push_str("\" alt=\"");
-                out.push_str(&escape_html_attr(&inline_text_content(alt)));
+                let alt_text = inline_text_content(alt);
+                escape_html_attr_to(&alt_text, out);
                 out.push('"');
                 if let Some(title) = title {
                     out.push_str(" title=\"");
-                    out.push_str(&escape_html_attr(title));
+                    escape_html_attr_to(title, out);
                     out.push('"');
                 }
                 out.push('>');
@@ -272,24 +279,34 @@ fn render_inlines(inlines: &[Inline], out: &mut String, options: RenderOptions) 
 
 fn render_raw_html(raw: &str, out: &mut String, options: RenderOptions) {
     if options.gfm {
-        out.push_str(&escape_disallowed_raw_html(raw));
+        escape_disallowed_raw_html_to(raw, out);
         return;
     }
     out.push_str(raw);
 }
 
-fn escape_html(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(ch),
-        }
+#[inline]
+pub(crate) fn escape_html_to_pub(text: &str, out: &mut String) {
+    escape_html_to(text, out);
+}
+
+#[inline]
+fn escape_html_to(text: &str, out: &mut String) {
+    let bytes = text.as_bytes();
+    let mut start = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let replacement = match b {
+            b'&' => "&amp;",
+            b'<' => "&lt;",
+            b'>' => "&gt;",
+            b'"' => "&quot;",
+            _ => continue,
+        };
+        out.push_str(&text[start..i]);
+        out.push_str(replacement);
+        start = i + 1;
     }
-    out
+    out.push_str(&text[start..]);
 }
 
 fn extract_code_block_language(info: &str) -> Option<&str> {
@@ -318,30 +335,24 @@ fn unescape_code_block_language(language: &str) -> String {
     out
 }
 
-fn escape_html_attr(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            _ => out.push(ch),
-        }
-    }
-    out
+fn escape_html_attr_to(text: &str, out: &mut String) {
+    escape_html_to(text, out);
 }
 
-fn escape_href_attr(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '"' => out.push_str("%22"),
-            _ => out.push(ch),
-        }
+fn escape_href_attr_to(text: &str, out: &mut String) {
+    let bytes = text.as_bytes();
+    let mut start = 0;
+    for (i, &b) in bytes.iter().enumerate() {
+        let replacement = match b {
+            b'&' => "&amp;",
+            b'"' => "%22",
+            _ => continue,
+        };
+        out.push_str(&text[start..i]);
+        out.push_str(replacement);
+        start = i + 1;
     }
-    out
+    out.push_str(&text[start..]);
 }
 
 fn render_table_align_attr(align: Option<ast::TableAlignment>, out: &mut String) {
@@ -355,22 +366,25 @@ fn render_table_align_attr(align: Option<ast::TableAlignment>, out: &mut String)
 
 fn inline_text_content(inlines: &[Inline]) -> String {
     let mut out = String::new();
+    inline_text_content_to(inlines, &mut out);
+    out
+}
+
+fn inline_text_content_to(inlines: &[Inline], out: &mut String) {
     for inline in inlines {
         match inline {
             Inline::Text(text) | Inline::Code(text) | Inline::RawHtml(text) => out.push_str(text),
             Inline::SoftBreak | Inline::HardBreak => out.push(' '),
             Inline::Em(children) | Inline::Strong(children) | Inline::Del(children) => {
-                out.push_str(&inline_text_content(children));
+                inline_text_content_to(children, out);
             }
-            Inline::Link { label, .. } => out.push_str(&inline_text_content(label)),
-            Inline::Image { alt, .. } => out.push_str(&inline_text_content(alt)),
+            Inline::Link { label, .. } => inline_text_content_to(label, out),
+            Inline::Image { alt, .. } => inline_text_content_to(alt, out),
         }
     }
-    out
 }
 
-fn escape_disallowed_raw_html(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
+fn escape_disallowed_raw_html_to(raw: &str, out: &mut String) {
     let mut i = 0usize;
 
     while i < raw.len() {
@@ -391,60 +405,45 @@ fn escape_disallowed_raw_html(raw: &str) -> String {
 
         if is_disallowed_raw_html_tag(tag) {
             out.push_str("&lt;");
-            out.push_str(&tag['<'.len_utf8()..]);
+            out.push_str(&tag[1..]);
         } else {
             out.push_str(tag);
         }
         i = tag_end;
     }
-
-    out
 }
 
 fn is_disallowed_raw_html_tag(tag: &str) -> bool {
-    let trimmed = tag.trim();
-    if !trimmed.starts_with('<') {
+    let bytes = tag.as_bytes();
+    if bytes.is_empty() || bytes[0] != b'<' {
         return false;
     }
-
-    let Some(name) = parse_tag_name(trimmed.trim_start_matches('<').trim_end_matches('>')) else {
+    let mut start = 1;
+    // skip optional '/'
+    if start < bytes.len() && bytes[start] == b'/' {
+        start += 1;
+    }
+    // skip whitespace
+    while start < bytes.len() && bytes[start].is_ascii_whitespace() {
+        start += 1;
+    }
+    let mut end = start;
+    while end < bytes.len() && !bytes[end].is_ascii_whitespace() && bytes[end] != b'/' && bytes[end] != b'>' {
+        end += 1;
+    }
+    if end == start {
         return false;
-    };
-
-    matches!(
-        name.as_str(),
-        "title"
-            | "textarea"
-            | "style"
-            | "xmp"
-            | "iframe"
-            | "noembed"
-            | "noframes"
-            | "script"
-            | "plaintext"
-    )
-}
-
-fn parse_tag_name(tag_body: &str) -> Option<String> {
-    let mut chars = tag_body.chars().peekable();
-    while matches!(chars.peek(), Some(c) if c.is_whitespace()) {
-        chars.next();
     }
-
-    if matches!(chars.peek(), Some('/')) {
-        chars.next();
-    }
-
-    let mut name = String::new();
-    while let Some(c) = chars.peek().copied() {
-        if c.is_whitespace() || c == '/' || c == '>' {
-            break;
-        }
-        name.push(c.to_ascii_lowercase());
-        chars.next();
-    }
-
-    if name.is_empty() { None } else { Some(name) }
+    let name = &tag[start..end];
+    name.eq_ignore_ascii_case("title")
+        || name.eq_ignore_ascii_case("textarea")
+        || name.eq_ignore_ascii_case("style")
+        || name.eq_ignore_ascii_case("xmp")
+        || name.eq_ignore_ascii_case("iframe")
+        || name.eq_ignore_ascii_case("noembed")
+        || name.eq_ignore_ascii_case("noframes")
+        || name.eq_ignore_ascii_case("script")
+        || name.eq_ignore_ascii_case("plaintext")
 }
 
 #[cfg(test)]

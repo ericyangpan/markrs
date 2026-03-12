@@ -31,6 +31,11 @@ pub fn render_markdown_to_html(input: &str, options: RenderOptions) -> String {
     markdown::render_markdown_to_html(input, options)
 }
 
+pub fn render_markdown_to_html_buf(input: &str, options: RenderOptions, buf: &mut String) {
+    buf.clear();
+    markdown::render_markdown_to_html_buf(input, options, buf)
+}
+
 fn preset_theme_vars(theme: &str) -> BTreeMap<String, String> {
     let mut vars = BTreeMap::new();
     match theme {

@@ -334,6 +334,7 @@ fn parse_inline_with_refs_mode(
     }
 }
 
+#[inline]
 fn is_token_start(chars: &[char], i: usize) -> bool {
     let c = chars[i];
     matches!(
@@ -370,6 +371,7 @@ fn parse_inline_fragment(
     parse_inline_with_refs_mode(input, gfm, pedantic, refs, false)
 }
 
+#[inline]
 fn inline_fragment_needs_parse(input: &str) -> bool {
     input.as_bytes().iter().any(|byte| {
         matches!(
@@ -391,6 +393,7 @@ enum InlinePart {
     },
 }
 
+#[inline]
 fn push_inline_part(out: &mut Vec<InlinePart>, part: InlinePart) {
     match part {
         InlinePart::Node(Inline::Text(text)) => {
@@ -413,6 +416,7 @@ fn inline_text_part_from_char(ch: char) -> InlinePart {
     InlinePart::Node(Inline::Text(text))
 }
 
+#[inline]
 fn push_inline_text_char(out: &mut Vec<InlinePart>, ch: char) {
     push_inline_part(out, inline_text_part_from_char(ch));
 }
@@ -457,7 +461,11 @@ fn inline_parts_into_nodes(parts: Vec<InlinePart>) -> Vec<Inline> {
         match part {
             InlinePart::Node(node) => push_inline_node(&mut out, node),
             InlinePart::Delimiter { marker, len, .. } => {
-                push_inline_node(&mut out, Inline::Text(marker.to_string().repeat(len)));
+                let mut s = String::with_capacity(len);
+                for _ in 0..len {
+                    s.push(marker);
+                }
+                push_inline_node(&mut out, Inline::Text(s));
             }
         }
     }
@@ -468,6 +476,7 @@ fn resolve_inline_parts(parts: Vec<InlinePart>) -> Vec<Inline> {
     inline_parts_into_nodes(resolve_delimiter_runs(parts))
 }
 
+#[inline]
 fn push_inline_node(out: &mut Vec<Inline>, node: Inline) {
     match node {
         Inline::Text(text) => {
@@ -497,8 +506,21 @@ struct BareAutolinkCandidate {
 }
 
 fn apply_gfm_bare_autolinks(nodes: Vec<Inline>) -> Vec<Inline> {
+    if !nodes_may_have_bare_autolinks(&nodes) {
+        return nodes;
+    }
     let mut stack = Vec::new();
     apply_gfm_bare_autolinks_with_stack(nodes, &mut stack)
+}
+
+fn nodes_may_have_bare_autolinks(nodes: &[Inline]) -> bool {
+    nodes.iter().any(|node| match node {
+        Inline::Text(text) => text_may_have_bare_autolink(text),
+        Inline::Em(children) | Inline::Strong(children) | Inline::Del(children) => {
+            nodes_may_have_bare_autolinks(children)
+        }
+        _ => false,
+    })
 }
 
 fn apply_gfm_bare_autolinks_with_stack(nodes: Vec<Inline>, stack: &mut Vec<String>) -> Vec<Inline> {

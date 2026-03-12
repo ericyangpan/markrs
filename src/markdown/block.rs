@@ -1256,6 +1256,7 @@ fn is_fenced_code_close(line: &str, fence_char: u8, fence_len: usize) -> bool {
     true
 }
 
+#[inline]
 fn split_leading_ws(line: &str) -> (usize, &str) {
     let mut byte_idx = 0usize;
     let mut cols = 0usize;
@@ -2245,6 +2246,7 @@ fn parse_table_tail_row(
     Some(row)
 }
 
+#[inline]
 fn is_markdown_blank(line: &str) -> bool {
     line.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
@@ -2493,6 +2495,11 @@ fn percent_encode_reference_destination(raw: &str) -> String {
 }
 
 pub(crate) fn decode_html_entities(raw: &str) -> String {
+    // Fast path: no '&' means no entities to decode
+    if !raw.contains('&') {
+        return raw.to_string();
+    }
+
     let mut out = String::with_capacity(raw.len());
     let mut i = 0usize;
 
@@ -2645,9 +2652,10 @@ fn parse_paragraph(
         if parse_atx_heading(raw_line, pedantic).is_some()
             || parse_thematic_break(raw_line).is_some()
             || parse_fenced_code_block(lines, i).is_some()
-            || (parse_list_block(lines, i, gfm, pedantic, refs).is_some()
-                && list_interrupts_paragraph(raw_line))
-            || parse_blockquote_block(lines, i).is_some()
+            || (list_interrupts_paragraph(raw_line)
+                && parse_list_block(lines, i, gfm, pedantic, refs).is_some())
+            || (line_could_start_blockquote(raw_line)
+                && parse_blockquote_block(lines, i).is_some())
             || parse_table_block(lines, i, gfm, pedantic, refs).is_some()
             || html_block_interrupts_paragraph(lines, i)
         {
@@ -2796,6 +2804,16 @@ fn line_has_list_marker_with_content(line: &str) -> bool {
         return !rest.trim_start().is_empty();
     }
     true
+}
+
+#[inline]
+fn line_could_start_blockquote(line: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && i < 4 && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    i < bytes.len() && bytes[i] == b'>'
 }
 
 fn list_interrupts_paragraph(line: &str) -> bool {
