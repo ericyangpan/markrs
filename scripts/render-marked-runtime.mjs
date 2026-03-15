@@ -15,7 +15,7 @@ function readMarkedVersion() {
 }
 
 function installMarked(version) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markrs-runtime-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markast-runtime-'));
   execFileSync('npm', ['init', '-y'], { cwd: tmpDir, stdio: 'ignore' });
   execFileSync('npm', ['install', `marked@${version}`], { cwd: tmpDir, stdio: 'ignore' });
   return tmpDir;

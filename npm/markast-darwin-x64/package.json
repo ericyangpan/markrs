@@ -1,11 +1,11 @@
 {
-  "name": "markrs-darwin-x64",
+  "name": "markast-darwin-x64",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Prebuilt markrs binary for macOS x64",
+  "description": "Prebuilt markast binary for macOS x64",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ericyangpan/markrs.git"
+    "url": "git+https://github.com/ericyangpan/markast.git"
   },
   "publishConfig": {
     "access": "public"
@@ -17,6 +17,6 @@
     "x64"
   ],
   "files": [
-    "bin/markrs"
+    "bin/markast"
   ]
 }

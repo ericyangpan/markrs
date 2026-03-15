@@ -75,14 +75,14 @@ Included in the same-case comparison:
 - Total comparable cases: ${specs.comparableTotal}
 
 Excluded from this table:
-- \`third_party/marked/test/unit/*.test.js\`: ${unitCases} JS unit cases. These exercise Marked's JS API surface such as hooks, lexer/parser classes, CLI integration, and instance behavior, so there is no 1:1 Rust-side case mapping in \`markrs\` yet.
-- \`third_party/marked/test/specs/redos\`: ${redosCases} ReDoS fixtures. These are security/performance-oriented fixtures and are not currently part of the \`markrs\` compat gates.
+- \`third_party/marked/test/unit/*.test.js\`: ${unitCases} JS unit cases. These exercise Marked's JS API surface such as hooks, lexer/parser classes, CLI integration, and instance behavior, so there is no 1:1 Rust-side case mapping in \`markast\` yet.
+- \`third_party/marked/test/specs/redos\`: ${redosCases} ReDoS fixtures. These are security/performance-oriented fixtures and are not currently part of the \`markast\` compat gates.
 
 | Target | Case source | Passed | Gaps | Pass rate |
 | --- | --- | ---: | ---: | ---: |
 | \`marked\` self-spec result | vendored \`marked\` fixture/spec corpus | ${specs.comparableTotal} | 0 | 100.0% |
-| \`markrs\` snapshot compat | vendored fixture/spec snapshots | ${snapshotPassed} | ${snapshotXfail} | ${percent(snapshotPassed, specs.comparableTotal)} |
-| \`markrs\` runtime compat | current \`marked@17.0.4\` runtime | ${runtimePassed} | ${runtimeXfail} | ${percent(runtimePassed, specs.comparableTotal)} |
+| \`markast\` snapshot compat | vendored fixture/spec snapshots | ${snapshotPassed} | ${snapshotXfail} | ${percent(snapshotPassed, specs.comparableTotal)} |
+| \`markast\` runtime compat | current \`marked@17.0.4\` runtime | ${runtimePassed} | ${runtimeXfail} | ${percent(runtimePassed, specs.comparableTotal)} |
 
 How to refresh:
 - \`npm run test:compat\`

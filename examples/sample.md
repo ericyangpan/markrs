@@ -1,4 +1,4 @@
-# markrs
+# markast
 
 A **tiny** CLI written in _Rust_.
 
@@ -7,10 +7,10 @@ A **tiny** CLI written in _Rust_.
 
 > Blockquote should be prefixed and styled.
 
-Use `markrs README.md`.
+Use `markast README.md`.
 
 ```rust
 fn main() {
-    println!("hello from markrs");
+    println!("hello from markast");
 }
 ```

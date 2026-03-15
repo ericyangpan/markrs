@@ -1,5 +1,5 @@
 # Auto-generated baseline for vendored marked snapshot mismatches.
-# Update with: MARKRS_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture
+# Update with: MARKAST_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture
 cases:
   - id: "new/blockquote_setext.md"
     reason: "snapshot mismatch vs vendored marked fixtures"

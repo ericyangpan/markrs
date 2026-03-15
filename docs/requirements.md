@@ -1,10 +1,10 @@
-# markrs Requirements
+# markast Requirements
 
 Last updated: 2026-03-12
 
 ## Product Direction
 
-`markrs` is an HTML-output Markdown renderer that targets compatibility with `marked` while adding project-specific styling features.
+`markast` is an HTML-output Markdown renderer that targets compatibility with `marked` while adding project-specific styling features.
 
 ## Priority Roadmap
 
@@ -13,7 +13,7 @@ Last updated: 2026-03-12
 - Replace `pulldown-cmark` with an in-house parser implementation.
 - Build the parser from scratch in Rust and make it the default parsing core.
 - Keep passing:
-  - markrs own test suite
+  - markast own test suite
   - marked snapshot compatibility suite (with shrinking `tests/compat/xfail.yaml`)
   - current marked runtime compatibility suite (with shrinking `tests/compat/runtime_xfail.yaml`)
 

@@ -1,11 +1,11 @@
 {
-  "name": "markrs-win32-x64-msvc",
+  "name": "markast-win32-x64-msvc",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Prebuilt markrs binary for Windows x64 MSVC",
+  "description": "Prebuilt markast binary for Windows x64 MSVC",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ericyangpan/markrs.git"
+    "url": "git+https://github.com/ericyangpan/markast.git"
   },
   "publishConfig": {
     "access": "public"
@@ -17,6 +17,6 @@
     "x64"
   ],
   "files": [
-    "bin/markrs.exe"
+    "bin/markast.exe"
   ]
 }

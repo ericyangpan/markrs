@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use compat_support::{
     build_pattern_matcher, collect_all_compat_cases, load_xfail_config, normalize_html, write_xfail,
 };
-use markrs::render_markdown_to_html;
+use markast::render_markdown_to_html;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -92,8 +92,11 @@ fn render_marked_runtime(
 fn marked_runtime_compatibility_suite() {
     let repo_root = test_support::repo_root();
     let xfail_path = repo_root.join("tests/compat/runtime_xfail.yaml");
-    let ignore_xfail = std::env::var("MARKRS_IGNORE_RUNTIME_XFAIL").ok().as_deref() == Some("1");
-    let print_diffs = std::env::var("MARKRS_PRINT_RUNTIME_DIFFS")
+    let ignore_xfail = std::env::var("MARKAST_IGNORE_RUNTIME_XFAIL")
+        .ok()
+        .as_deref()
+        == Some("1");
+    let print_diffs = std::env::var("MARKAST_PRINT_RUNTIME_DIFFS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
@@ -174,7 +177,7 @@ fn marked_runtime_compatibility_suite() {
         }
     }
 
-    if std::env::var("MARKRS_WRITE_RUNTIME_XFAIL").ok().as_deref() == Some("1") {
+    if std::env::var("MARKAST_WRITE_RUNTIME_XFAIL").ok().as_deref() == Some("1") {
         let mut baseline = failures.clone();
         baseline.extend(xfailed.clone());
         baseline.sort();
@@ -184,7 +187,7 @@ fn marked_runtime_compatibility_suite() {
             &xfail_path,
             &baseline,
             "current marked runtime mismatches",
-            "MARKRS_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
+            "MARKAST_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
             &reason,
         );
         eprintln!(
@@ -256,7 +259,7 @@ fn marked_runtime_compatibility_suite() {
 
     if !report.is_empty() {
         panic!(
-            "marked runtime compatibility check failed.\n{}\nsummary: marked_version={}, total_cases={}, xfailed={}, new_failures={}, recovered={}, stale_xfail={}\n\nIf runtime baseline changed intentionally, refresh with:\nMARKRS_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
+            "marked runtime compatibility check failed.\n{}\nsummary: marked_version={}, total_cases={}, xfailed={}, new_failures={}, recovered={}, stale_xfail={}\n\nIf runtime baseline changed intentionally, refresh with:\nMARKAST_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
             report,
             runtime.marked_version,
             cases.len(),

@@ -1,6 +1,6 @@
-# markrs Development Docs
+# markast Development Docs
 
-This directory is the stable entrypoint for people and agents working on `markrs`.
+This directory is the stable entrypoint for people and agents working on `markast`.
 
 ## Start Here
 
@@ -17,9 +17,13 @@ Read these when you are working on parser roadmap items:
 - `docs/p0-parser-plan.md`
 - `docs/p0-parser-design.md`
 
+Read this when you need the rename and publish status:
+
+- `docs/rename-to-markast.md`
+
 ## Project Snapshot
 
-`markrs` is a Rust Markdown renderer shipped through npm.
+`markast` is a Rust Markdown renderer shipped through npm.
 
 Core characteristics:
 
@@ -67,6 +71,12 @@ For agents:
 - Benchmark contract and interpretation
 - Performance targets vs `marked`
 - Optimization program and hot-path priorities
+
+`docs/rename-to-markast.md`
+
+- Current rename completion status
+- Published package inventory
+- Remaining npm Windows package blocker
 
 `docs/requirements.md`, `docs/p0-parser-plan.md`, `docs/p0-parser-design.md`
 

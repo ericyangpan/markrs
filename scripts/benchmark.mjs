@@ -292,8 +292,28 @@ function runJsEngine(engineId, renderer, suites) {
 }
 
 function runRustEngine(engineId, suites) {
-  shell('cargo', ['build', '--release', '--bin', 'markrs-bench'], { stdio: 'inherit' });
-  const inputPath = path.join(resultsDir, 'markrs-bench-input.json');
+  let exePath;
+  if (engineId === 'markast') {
+    shell('cargo', ['build', '--release', '--bin', 'markast-bench'], { stdio: 'inherit' });
+    exePath = path.join(repoRoot, 'target', 'release', 'markast-bench');
+  } else if (engineId === 'pulldown-cmark') {
+    shell(
+      'cargo',
+      [
+        'build',
+        '--release',
+        '--manifest-path',
+        path.join('bench', 'pulldown-cmark-runner', 'Cargo.toml'),
+        '--target-dir',
+        path.join('target', 'pulldown-cmark-runner'),
+      ],
+      { stdio: 'inherit' },
+    );
+    exePath = path.join(repoRoot, 'target', 'pulldown-cmark-runner', 'release', 'pulldown-cmark-runner');
+  } else {
+    throw new Error(`Unsupported Rust engine: ${engineId}`);
+  }
+  const inputPath = path.join(resultsDir, 'markast-bench-input.json');
   fs.mkdirSync(resultsDir, { recursive: true });
   fs.writeFileSync(
     inputPath,
@@ -307,7 +327,7 @@ function runRustEngine(engineId, suites) {
       })),
     }),
   );
-  const raw = shell(path.join(repoRoot, 'target', 'release', 'markrs-bench'), ['--engine', engineId, '--input', inputPath]);
+  const raw = shell(exePath, ['--input', inputPath]);
   const parsed = JSON.parse(raw);
   return {
     engine: parsed.engine,
@@ -334,7 +354,7 @@ function shouldRunEngine(engineId) {
       .includes(engineId);
   }
 
-  const isRust = engineId === 'markrs' || engineId === 'pulldown-cmark';
+  const isRust = engineId === 'markast' || engineId === 'pulldown-cmark';
   if (rustOnly) return isRust;
   if (jsOnly) return !isRust;
   return true;
@@ -372,7 +392,7 @@ function renderMarkdownReport(report) {
   lines.push('| --- | --- | ---: | ---: | ---: | ---: | ---: |');
 
   const enginesPresent = new Set(report.engines.map((engine) => engine.engine));
-  const engineOrder = ['markrs', 'pulldown-cmark', 'marked', 'markdown-it', 'remark'].filter((engineId) => enginesPresent.has(engineId));
+  const engineOrder = ['markast', 'pulldown-cmark', 'marked', 'markdown-it', 'remark'].filter((engineId) => enginesPresent.has(engineId));
   for (const suite of report.suites) {
     const byEngine = new Map(report.engines.map((engine) => [engine.engine, engine.suites.find((entry) => entry.id === suite.id)]));
     const marked = byEngine.get('marked');
@@ -381,8 +401,8 @@ function renderMarkdownReport(report) {
       if (!row) {
         continue;
       }
-      const label = engineId === 'markrs'
-        ? 'markrs (Rust)'
+      const label = engineId === 'markast'
+        ? 'markast (Rust)'
         : engineId === 'pulldown-cmark'
           ? 'pulldown-cmark (Rust)'
           : engineId === 'marked'
@@ -487,7 +507,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     environment: collectEnvironment(),
     versions: {
-      markrs: JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version,
+      markast: JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version,
       marked: '17.0.4',
       markdownIt: '14.1.1',
       pulldownCmark: '0.13.1',
@@ -509,8 +529,8 @@ async function main() {
     engines: [],
   };
 
-  if (shouldRunEngine('markrs')) {
-    report.engines.push(runRustEngine('markrs', suites));
+  if (shouldRunEngine('markast')) {
+    report.engines.push(runRustEngine('markast', suites));
   }
   if (shouldRunEngine('pulldown-cmark')) {
     report.engines.push(runRustEngine('pulldown-cmark', suites));

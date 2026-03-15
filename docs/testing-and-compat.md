@@ -38,11 +38,11 @@ This document explains the repo's stable quality gates and compatibility baselin
 
 `npm run test:compat:snapshot`
 
-- compares `markrs` output to vendored `marked` fixture snapshots under `third_party/marked/test/specs`
+- compares `markast` output to vendored `marked` fixture snapshots under `third_party/marked/test/specs`
 
 `npm run test:compat:runtime`
 
-- compares `markrs` output to the current vendored `marked` npm runtime
+- compares `markast` output to the current vendored `marked` npm runtime
 
 `npm run test:compat`
 

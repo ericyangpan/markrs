@@ -4,7 +4,7 @@ Last updated: 2026-03-12
 
 ## Goal
 
-Build a Rust Markdown parser from scratch and remove `pulldown-cmark` from `markrs`.
+Build a Rust Markdown parser from scratch and remove `pulldown-cmark` from `markast`.
 
 Detailed design:
 
@@ -143,7 +143,7 @@ Exit criteria:
 - New parser path is the runtime default rendering route.
 - Own tests compile and run.
 
-Status: completed (default render route switched to `render_markdown_to_html` in `src/markdown/mod.rs`; old `markrs` branch removed).
+Status: completed (default render route switched to `render_markdown_to_html` in `src/markdown/mod.rs`; old `markast` branch removed).
 
 ### M2: Block Completeness
 
@@ -191,7 +191,7 @@ Exit criteria:
 - `Cargo.toml` has no `pulldown-cmark`.
 - `npm run test:own` and `npm run test:compat` pass.
 
-Status: parser dependency cutover is structurally complete; next step is evidence pass for `test:own`/`test:compat` after staged fixes.
+Status: main crate dependency cutover is complete; remaining work is staged compatibility reduction plus evidence pass for `test:own`/`test:compat`.
 
 ## Execution Update (2026-03-06)
 
@@ -911,7 +911,7 @@ Status update (2026-03-08, E27 current-marked runtime gate added):
 - runtime baseline initialized at `150`
 - completed in this batch:
   - extracted shared compat helpers into `tests/compat_support/mod.rs` so snapshot/runtime suites use the same fixture collection, front-matter parsing, HTML normalization, and xfail YAML handling
-  - added `tests/compat_runtime.rs`, which batches every compat fixture through a Node oracle backed by `marked@17.0.4` and compares the normalized runtime HTML against `markrs`
+  - added `tests/compat_runtime.rs`, which batches every compat fixture through a Node oracle backed by `marked@17.0.4` and compares the normalized runtime HTML against `markast`
   - added `scripts/render-marked-runtime.mjs` as the batch renderer used by the Rust runtime suite
   - `package.json` now treats `npm run test:compat:runtime` as the real current-runtime gate, with `npm run test:compat:runtime:update-xfail` for its baseline and `npm run test:compat:runtime-drift` reserved for the older snapshot-drift audit
   - runtime baseline is stored in `tests/compat/runtime_xfail.yaml`

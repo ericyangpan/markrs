@@ -1,6 +1,6 @@
 # Architecture
 
-This document explains where the main logic lives and how Markdown becomes HTML in `markrs`.
+This document explains where the main logic lives and how Markdown becomes HTML in `markast`.
 
 ## System Overview
 
@@ -88,7 +88,7 @@ The public API contract is preserved through `render_markdown_to_html(input, opt
 
 `tests/own_rendering.rs`
 
-- Product-level assertions for `markrs` behavior
+- Product-level assertions for `markast` behavior
 
 `tests/parser_blocks.rs`
 
@@ -104,17 +104,17 @@ The public API contract is preserved through `render_markdown_to_html(input, opt
 
 `tests/compat_snapshot.rs`
 
-- Compares `markrs` output to vendored `marked` fixture snapshots
+- Compares `markast` output to vendored `marked` fixture snapshots
 
 `tests/compat_runtime.rs`
 
-- Compares `markrs` output to the current vendored `marked` npm runtime
+- Compares `markast` output to the current vendored `marked` npm runtime
 
 ## npm and Release Layout
 
 Root `package.json`:
 
-- exposes the `markrs` binary through `bin/markrs.js`
+- exposes the `markast` binary through `bin/markast.js`
 - defines developer commands
 - depends on platform packages through `optionalDependencies`
 

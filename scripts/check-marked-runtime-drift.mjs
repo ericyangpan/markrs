@@ -142,7 +142,7 @@ function loadMarkedVersion() {
 }
 
 function installMarked(version) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markrs-marked-'));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'markast-marked-'));
   execFileSync('npm', ['init', '-y'], {
     cwd: tmpDir,
     stdio: 'ignore',

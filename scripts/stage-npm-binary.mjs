@@ -32,7 +32,7 @@ if (!existsSync(binaryPath)) {
 }
 
 const isWindows = Array.isArray(packageJson.os) && packageJson.os.includes('win32');
-const outputFile = isWindows ? 'markrs.exe' : 'markrs';
+const outputFile = isWindows ? 'markast.exe' : 'markast';
 const outputPath = join(packageDir, 'bin', outputFile);
 
 mkdirSync(join(packageDir, 'bin'), { recursive: true });

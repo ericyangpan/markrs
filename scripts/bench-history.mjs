@@ -61,7 +61,7 @@ function formatRatio(ratio) {
 function main() {
   const historyPath = valueArg('--path') ?? defaultHistoryPath;
   const suiteArg = valueArg('--suite') ?? 'full-corpus';
-  const engineId = valueArg('--engine') ?? 'markrs';
+  const engineId = valueArg('--engine') ?? 'markast';
   const baselineId = valueArg('--baseline') ?? 'marked';
   const limit = parsePositiveInt(valueArg('--limit') ?? '20') ?? 20;
   const byCommit = process.argv.includes('--by-commit');

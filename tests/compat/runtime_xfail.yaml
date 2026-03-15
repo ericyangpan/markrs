@@ -1,5 +1,5 @@
 # Auto-generated baseline for current marked runtime mismatches.
-# Update with: MARKRS_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture
+# Update with: MARKAST_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture
 cases:
   - id: "new/em_and_reflinks.md"
     reason: "runtime mismatch vs marked@17.0.4"

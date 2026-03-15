@@ -1,4 +1,4 @@
-use markrs::{RenderOptions, render_markdown_to_html};
+use markast::{RenderOptions, render_markdown_to_html};
 
 #[test]
 fn parser_inlines_render_link_and_image_titles() {

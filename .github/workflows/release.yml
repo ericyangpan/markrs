@@ -41,24 +41,24 @@ jobs:
         include:
           - runner: macos-14
             target: aarch64-apple-darwin
-            package_dir: markrs-darwin-arm64
+            package_dir: markast-darwin-arm64
             binary_ext: ''
           - runner: macos-15-intel
             target: x86_64-apple-darwin
-            package_dir: markrs-darwin-x64
+            package_dir: markast-darwin-x64
             binary_ext: ''
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            package_dir: markrs-linux-x64-gnu
+            package_dir: markast-linux-x64-gnu
             binary_ext: ''
           - runner: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            package_dir: markrs-linux-arm64-gnu
+            package_dir: markast-linux-arm64-gnu
             binary_ext: ''
             linker: aarch64-linux-gnu-gcc
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            package_dir: markrs-win32-x64-msvc
+            package_dir: markast-win32-x64-msvc
             binary_ext: '.exe'
 
     steps:
@@ -95,7 +95,7 @@ jobs:
         run: |
           node scripts/stage-npm-binary.mjs \
             "npm/${{ matrix.package_dir }}" \
-            "target/${{ matrix.target }}/release/markrs${{ matrix.binary_ext }}"
+            "target/${{ matrix.target }}/release/markast${{ matrix.binary_ext }}"
 
       - name: Upload platform package artifact
         uses: actions/upload-artifact@v4
@@ -161,7 +161,7 @@ jobs:
               continue
             fi
 
-            if [ "$name" = "markrs-win32-x64-msvc" ]; then
+            if [ "$name" = "markast-win32-x64-msvc" ]; then
               echo "::warning::Publish failed for ${name}@${version}; continuing so the main package can publish while npm support is pending."
               continue
             fi

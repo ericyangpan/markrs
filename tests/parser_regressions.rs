@@ -3,7 +3,7 @@ mod test_support;
 use std::fs;
 use std::sync::LazyLock;
 
-use markrs::{RenderOptions, render_markdown_to_html};
+use markast::{RenderOptions, render_markdown_to_html};
 use regex::Regex;
 use serde_json::Value;
 

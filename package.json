@@ -1,28 +1,28 @@
 {
-  "name": "markrs",
+  "name": "markast",
   "version": "0.1.0",
   "description": "Rust-powered markdown to HTML renderer with customizable styles",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ericyangpan/markrs.git"
+    "url": "git+https://github.com/ericyangpan/markast.git"
   },
-  "homepage": "https://github.com/ericyangpan/markrs#readme",
+  "homepage": "https://github.com/ericyangpan/markast#readme",
   "bugs": {
-    "url": "https://github.com/ericyangpan/markrs/issues"
+    "url": "https://github.com/ericyangpan/markast/issues"
   },
   "publishConfig": {
     "access": "public"
   },
   "optionalDependencies": {
-    "markrs-darwin-arm64": "0.1.0",
-    "markrs-darwin-x64": "0.1.0",
-    "markrs-linux-arm64-gnu": "0.1.0",
-    "markrs-linux-x64-gnu": "0.1.0",
-    "markrs-win32-x64-msvc": "0.1.0"
+    "markast-darwin-arm64": "0.1.0",
+    "markast-darwin-x64": "0.1.0",
+    "markast-linux-arm64-gnu": "0.1.0",
+    "markast-linux-x64-gnu": "0.1.0",
+    "markast-win32-x64-msvc": "0.1.0"
   },
   "bin": {
-    "markrs": "bin/markrs.js"
+    "markast": "bin/markast.js"
   },
   "files": [
     "Cargo.toml",
@@ -42,7 +42,7 @@
     "test:compat:snapshot:update-xfail": "./scripts/update-compat-xfail.sh",
     "test:compat:update-xfail": "npm run test:compat:snapshot:update-xfail",
     "test:compat:runtime": "cargo test --test compat_runtime",
-    "test:compat:runtime:update-xfail": "MARKRS_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
+    "test:compat:runtime:update-xfail": "MARKAST_WRITE_RUNTIME_XFAIL=1 cargo test --test compat_runtime -- --nocapture",
     "test:compat:runtime-drift": "node scripts/check-marked-runtime-drift.mjs",
     "test:compat:report": "node scripts/compat-report.mjs",
     "check": "cargo check",

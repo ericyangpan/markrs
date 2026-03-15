@@ -1,6 +1,6 @@
-# markrs
+# markast
 
-`markrs` is a Rust Markdown renderer distributed through npm.
+`markast` is a Rust Markdown renderer distributed through npm.
 
 By default it outputs HTML fragments like `marked`.
 It can also output a full HTML document with built-in or custom styles.
@@ -8,7 +8,7 @@ It can also output a full HTML document with built-in or custom styles.
 ## Install
 
 ```bash
-npm i -g markrs
+npm i -g markast
 ```
 
 ## Usage
@@ -16,22 +16,22 @@ npm i -g markrs
 Render Markdown to HTML fragment (default):
 
 ```bash
-markrs README.md > out.html
-cat README.md | markrs
+markast README.md > out.html
+cat README.md | markast
 ```
 
 Render full HTML document with built-in theme:
 
 ```bash
-markrs --document --theme github README.md > page.html
-markrs --document --theme dracula README.md > page.html
-markrs --document --theme paper README.md > page.html
+markast --document --theme github README.md > page.html
+markast --document --theme dracula README.md > page.html
+markast --document --theme paper README.md > page.html
 ```
 
 Apply custom style definition (JSON):
 
 ```bash
-markrs --document --theme-file theme.json README.md > page.html
+markast --document --theme-file theme.json README.md > page.html
 ```
 
 `theme.json` format:
@@ -39,18 +39,18 @@ markrs --document --theme-file theme.json README.md > page.html
 ```json
 {
   "variables": {
-    "--markrs-bg": "#0f1115",
-    "--markrs-fg": "#f2f5f9",
-    "--markrs-link": "#65c1ff"
+    "--markast-bg": "#0f1115",
+    "--markast-fg": "#f2f5f9",
+    "--markast-link": "#65c1ff"
   },
-  "css": ".markrs h1 { letter-spacing: 0.02em; }"
+  "css": ".markast h1 { letter-spacing: 0.02em; }"
 }
 ```
 
 Append extra CSS file:
 
 ```bash
-markrs --document --css ./extra.css README.md > page.html
+markast --document --css ./extra.css README.md > page.html
 ```
 
 ## Development
@@ -67,7 +67,7 @@ npm run build
 ```
 
 Parser engine:
-Current default and only parser is the in-house `markdown` module (new parser pipeline), with no external markdown engine dependency.
+Current default and only production parser is the in-house `markdown` module (new parser pipeline), with no external markdown engine dependency in the main crate.
 
 Requirements and roadmap: `docs/requirements.md`
 
@@ -110,14 +110,14 @@ Included in the same-case comparison:
 - Total comparable cases: 1485
 
 Excluded from this table:
-- `third_party/marked/test/unit/*.test.js`: 158 JS unit cases. These exercise Marked's JS API surface such as hooks, lexer/parser classes, CLI integration, and instance behavior, so there is no 1:1 Rust-side case mapping in `markrs` yet.
-- `third_party/marked/test/specs/redos`: 7 ReDoS fixtures. These are security/performance-oriented fixtures and are not currently part of the `markrs` compat gates.
+- `third_party/marked/test/unit/*.test.js`: 158 JS unit cases. These exercise Marked's JS API surface such as hooks, lexer/parser classes, CLI integration, and instance behavior, so there is no 1:1 Rust-side case mapping in `markast` yet.
+- `third_party/marked/test/specs/redos`: 7 ReDoS fixtures. These are security/performance-oriented fixtures and are not currently part of the `markast` compat gates.
 
 | Target | Case source | Passed | Gaps | Pass rate |
 | --- | --- | ---: | ---: | ---: |
 | `marked` self-spec result | vendored `marked` fixture/spec corpus | 1485 | 0 | 100.0% |
-| `markrs` snapshot compat | vendored fixture/spec snapshots | 1449 | 36 | 97.6% |
-| `markrs` runtime compat | current `marked@17.0.4` runtime | 1353 | 132 | 91.1% |
+| `markast` snapshot compat | vendored fixture/spec snapshots | 1449 | 36 | 97.6% |
+| `markast` runtime compat | current `marked@17.0.4` runtime | 1353 | 132 | 91.1% |
 
 How to refresh:
 - `npm run test:compat`
@@ -133,8 +133,8 @@ npm run bench
 ```
 
 The harness benchmarks shared Markdown corpora against five engines:
-- `markrs` through an in-process Rust benchmark binary
-- `pulldown-cmark` through an in-process Rust benchmark binary
+- `markast` through an in-process Rust benchmark binary
+- `pulldown-cmark` through a benchmark-only comparison runner
 - `marked` through `marked.parse(...)`
 - `markdown-it` through `markdown-it.render(...)`
 - `remark` through `remark + remark-gfm + remark-html`
@@ -145,7 +145,8 @@ Raw data is written to `bench/results/latest.json`.
 
 Performance strategy and optimization batches live in `docs/performance.md`.
 
-`pulldown-cmark` is included as a throughput ceiling reference. `markrs` is not expected to match its architecture or semantics in Phase 1.
+`pulldown-cmark` is included as a throughput ceiling reference. `markast` is not expected to match its architecture or semantics in Phase 1.
+The `pulldown-cmark` comparator is kept outside the main `markast` crate so release/runtime dependencies stay focused on the in-house parser.
 
 <!-- benchmark-report:start -->
 Benchmark date: 2026-03-13
@@ -163,22 +164,22 @@ Environment: Apple M4 | darwin 24.6.0 (arm64) | Node 22.22.1 | Rust rustc 1.93.0
 
 | Suite | Engine | Trimmed mean ms | Median ms | Docs/s | MiB/s | vs marked |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| README.md | markrs (Rust) | 0.24 | 0.24 | 4116.9 | 29.02 | 1.64x |
+| README.md | markast (Rust) | 0.24 | 0.24 | 4116.9 | 29.02 | 1.64x |
 | README.md | pulldown-cmark (Rust) | 0.05 | 0.05 | 21819.0 | 153.79 | 8.71x |
 | README.md | marked (JS) | 0.40 | 0.39 | 2506.1 | 17.66 | 1.00x |
 | README.md | markdown-it (JS) | 0.47 | 0.46 | 2133.9 | 15.04 | 0.85x |
 | README.md | remark + gfm + html | 5.40 | 5.20 | 185.0 | 1.30 | 0.07x |
-| CommonMark Core | markrs (Rust) | 1.23 | 1.20 | 529408.8 | 11.55 | 1.62x |
+| CommonMark Core | markast (Rust) | 1.23 | 1.20 | 529408.8 | 11.55 | 1.62x |
 | CommonMark Core | pulldown-cmark (Rust) | 0.52 | 0.51 | 1258143.2 | 27.46 | 3.85x |
 | CommonMark Core | marked (JS) | 1.99 | 1.93 | 327005.7 | 7.14 | 1.00x |
 | CommonMark Core | markdown-it (JS) | 2.33 | 2.26 | 280410.0 | 6.12 | 0.86x |
 | CommonMark Core | remark + gfm + html | 29.32 | 28.71 | 22234.4 | 0.49 | 0.07x |
-| Marked Fixtures | markrs (Rust) | 3.24 | 3.17 | 47214.0 | 17.56 | 1.41x |
+| Marked Fixtures | markast (Rust) | 3.24 | 3.17 | 47214.0 | 17.56 | 1.41x |
 | Marked Fixtures | pulldown-cmark (Rust) | 0.59 | 0.59 | 259931.5 | 96.69 | 7.77x |
 | Marked Fixtures | marked (JS) | 4.57 | 4.57 | 33466.2 | 12.45 | 1.00x |
 | Marked Fixtures | markdown-it (JS) | 3.69 | 3.64 | 41492.2 | 15.43 | 1.24x |
 | Marked Fixtures | remark + gfm + html | 47.08 | 46.84 | 3250.1 | 1.21 | 0.10x |
-| Comparable Corpus | markrs (Rust) | 4.41 | 4.41 | 336770.0 | 19.69 | 1.90x |
+| Comparable Corpus | markast (Rust) | 4.41 | 4.41 | 336770.0 | 19.69 | 1.90x |
 | Comparable Corpus | pulldown-cmark (Rust) | 1.23 | 1.20 | 1206282.9 | 70.52 | 6.80x |
 | Comparable Corpus | marked (JS) | 8.37 | 8.37 | 177508.4 | 10.38 | 1.00x |
 | Comparable Corpus | markdown-it (JS) | 6.94 | 6.90 | 213845.0 | 12.50 | 1.20x |
@@ -195,4 +196,4 @@ GitHub Actions workflow `.github/workflows/release.yml` will:
 
 1. Build each platform binary.
 2. Pack and publish platform npm packages.
-3. Publish the main package `markrs`.
+3. Publish the main package `markast`.

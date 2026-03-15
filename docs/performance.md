@@ -1,6 +1,6 @@
 # Performance
 
-This document turns benchmark observations into a concrete optimization plan for `markrs`.
+This document turns benchmark observations into a concrete optimization plan for `markast`.
 
 It has two jobs:
 
@@ -36,6 +36,10 @@ npm install
 npm run bench
 ```
 
+Implementation note:
+
+- the `pulldown-cmark` comparison runner lives under `bench/pulldown-cmark-runner`, not in the main `markast` crate dependency graph
+
 Measurement discipline:
 
 - run benchmarks in isolation; do not overlap them with `npm run check:strict`, `cargo test`, or other heavy local workloads
@@ -50,7 +54,7 @@ Current benchmark suites:
 Interpretation:
 
 - `CommonMark Core` is the fairest suite for `pulldown-cmark`
-- `Marked Fixtures` and `Comparable Corpus` are the fairest suites for `marked`, `markdown-it`, and `markrs`
+- `Marked Fixtures` and `Comparable Corpus` are the fairest suites for `marked`, `markdown-it`, and `markast`
 - `README.md` is useful for spotting fixed overhead, but it is not the primary KPI
 
 Primary KPI:
@@ -84,7 +88,7 @@ What to borrow:
 
 What not to copy blindly:
 
-- `markrs` still has to preserve `marked` compatibility behavior that `pulldown-cmark` does not target
+- `markast` still has to preserve `marked` compatibility behavior that `pulldown-cmark` does not target
 - full event-stream architecture is a larger rewrite than we need for Phase 1
 
 ## What `micromark` Proves
@@ -107,7 +111,7 @@ Ideas worth borrowing:
 4. Extension boundaries
 - syntax hooks and HTML hooks should not be mixed into one giant parser branch table
 
-For `markrs`, the practical takeaway is simple:
+For `markast`, the practical takeaway is simple:
 
 - less `String`
 - less `Vec<char>`
@@ -267,7 +271,7 @@ Expected payoff:
 
 ## Architectural Direction After Phase 1
 
-If `markrs` beats `marked` but still sits far from `pulldown-cmark`, the next step is not random micro-optimization.
+If `markast` beats `marked` but still sits far from `pulldown-cmark`, the next step is not random micro-optimization.
 
 The next serious options are:
 
@@ -298,7 +302,7 @@ npm run bench
 
 Right now the benchmark means:
 
-- `markrs` is already competitive with `marked`
+- `markast` is already competitive with `marked`
 - `markdown-it` is a stronger JS baseline than expected and should stay in the table
 - `pulldown-cmark` is the throughput ceiling reference, not the immediate product target
 

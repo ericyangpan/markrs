@@ -5,37 +5,18 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use clap::{Parser, ValueEnum};
-use markrs::{RenderOptions, render_markdown_to_html_buf};
-use pulldown_cmark::{Options as PulldownOptions, Parser as PulldownParser, html};
+use clap::Parser;
+use markast::{RenderOptions, render_markdown_to_html_buf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "markrs-bench",
+    name = "markast-bench",
     about = "In-process benchmark runner for markdown engines"
 )]
 struct Args {
     #[arg(long)]
     input: PathBuf,
-
-    #[arg(long, value_enum, default_value_t = EngineArg::Markrs)]
-    engine: EngineArg,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum EngineArg {
-    Markrs,
-    PulldownCmark,
-}
-
-impl EngineArg {
-    fn id(self) -> &'static str {
-        match self {
-            Self::Markrs => "markrs",
-            Self::PulldownCmark => "pulldown-cmark",
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -85,47 +66,15 @@ fn suite_options_to_render_options(options: SuiteOptions) -> RenderOptions {
     }
 }
 
-fn suite_options_to_pulldown_options(options: SuiteOptions) -> PulldownOptions {
-    let mut pulldown = PulldownOptions::empty();
-    if options.gfm {
-        pulldown.insert(PulldownOptions::ENABLE_TABLES);
-        pulldown.insert(PulldownOptions::ENABLE_STRIKETHROUGH);
-        pulldown.insert(PulldownOptions::ENABLE_TASKLISTS);
-    }
-    let _ = options.breaks;
-    let _ = options.pedantic;
-    pulldown
-}
-
-fn render_pulldown_to_html(doc: &str, options: SuiteOptions) -> String {
-    let parser = PulldownParser::new_ext(doc, suite_options_to_pulldown_options(options));
-    let mut out = String::with_capacity(doc.len().saturating_mul(2));
-    html::push_html(&mut out, parser);
-    out
-}
-
-fn render_suite(engine: EngineArg, docs: &[String], options: SuiteOptions) -> (usize, u64) {
+fn render_suite(docs: &[String], options: SuiteOptions) -> (usize, u64) {
     let mut output_bytes = 0usize;
     let mut hasher = DefaultHasher::new();
     let mut buf = String::with_capacity(4096);
 
     for doc in docs {
-        match engine {
-            EngineArg::Markrs => {
-                render_markdown_to_html_buf(
-                    doc,
-                    suite_options_to_render_options(options),
-                    &mut buf,
-                );
-                output_bytes += buf.len();
-                buf.hash(&mut hasher);
-            }
-            EngineArg::PulldownCmark => {
-                let html = render_pulldown_to_html(doc, options);
-                output_bytes += html.len();
-                html.hash(&mut hasher);
-            }
-        };
+        render_markdown_to_html_buf(doc, suite_options_to_render_options(options), &mut buf);
+        output_bytes += buf.len();
+        buf.hash(&mut hasher);
     }
 
     (output_bytes, hasher.finish())
@@ -142,7 +91,7 @@ fn main() -> Result<()> {
 
     for suite in input.suites {
         for _ in 0..suite.warmup_runs {
-            let _ = render_suite(args.engine, &suite.docs, suite.options);
+            let _ = render_suite(&suite.docs, suite.options);
         }
 
         let mut runs_ms = Vec::with_capacity(suite.measure_runs);
@@ -151,7 +100,7 @@ fn main() -> Result<()> {
 
         for _ in 0..suite.measure_runs {
             let started = Instant::now();
-            let (bytes, hash) = render_suite(args.engine, &suite.docs, suite.options);
+            let (bytes, hash) = render_suite(&suite.docs, suite.options);
             let elapsed = started.elapsed();
             output_bytes = bytes;
             checksum = hash;
@@ -172,7 +121,7 @@ fn main() -> Result<()> {
     }
 
     let output = BenchOutput {
-        engine: args.engine.id(),
+        engine: "markast",
         suites,
     };
     println!("{}", serde_json::to_string(&output)?);

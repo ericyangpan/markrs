@@ -7,7 +7,7 @@ use compat_support::{
     build_pattern_matcher, collect_all_compat_cases, load_xfail_config, normalize_html,
     should_use_gfm, write_xfail,
 };
-use markrs::render_markdown_to_html;
+use markast::render_markdown_to_html;
 
 #[test]
 fn compat_commonmark_mirror_cases_do_not_force_gfm() {
@@ -24,8 +24,8 @@ fn compat_commonmark_mirror_cases_do_not_force_gfm() {
 fn marked_snapshot_compatibility_suite() {
     let repo_root = test_support::repo_root();
     let xfail_path = repo_root.join("tests/compat/xfail.yaml");
-    let ignore_xfail = std::env::var("MARKRS_IGNORE_XFAIL").ok().as_deref() == Some("1");
-    let print_diffs = std::env::var("MARKRS_PRINT_DIFFS")
+    let ignore_xfail = std::env::var("MARKAST_IGNORE_XFAIL").ok().as_deref() == Some("1");
+    let print_diffs = std::env::var("MARKAST_PRINT_DIFFS")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(0);
@@ -82,7 +82,7 @@ fn marked_snapshot_compatibility_suite() {
         }
     }
 
-    if std::env::var("MARKRS_WRITE_XFAIL").ok().as_deref() == Some("1") {
+    if std::env::var("MARKAST_WRITE_XFAIL").ok().as_deref() == Some("1") {
         let mut baseline = failures.clone();
         baseline.extend(xfailed.clone());
         baseline.sort();
@@ -91,7 +91,7 @@ fn marked_snapshot_compatibility_suite() {
             &xfail_path,
             &baseline,
             "vendored marked snapshot mismatches",
-            "MARKRS_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture",
+            "MARKAST_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture",
             "snapshot mismatch vs vendored marked fixtures",
         );
         eprintln!(
@@ -160,7 +160,7 @@ fn marked_snapshot_compatibility_suite() {
 
     if !report.is_empty() {
         panic!(
-            "marked snapshot compatibility check failed.\n{}\nsummary: total_cases={}, xfailed={}, new_failures={}, recovered={}, stale_xfail={}\n\nIf snapshot baseline changed intentionally, refresh with:\nMARKRS_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture",
+            "marked snapshot compatibility check failed.\n{}\nsummary: total_cases={}, xfailed={}, new_failures={}, recovered={}, stale_xfail={}\n\nIf snapshot baseline changed intentionally, refresh with:\nMARKAST_WRITE_XFAIL=1 cargo test --test compat_snapshot -- --nocapture",
             report,
             cases.len(),
             xfailed.len(),

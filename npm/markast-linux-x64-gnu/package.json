@@ -1,11 +1,11 @@
 {
-  "name": "markrs-linux-x64-gnu",
+  "name": "markast-linux-x64-gnu",
   "version": "0.1.0",
   "license": "MIT",
-  "description": "Prebuilt markrs binary for Linux x64 GNU",
+  "description": "Prebuilt markast binary for Linux x64 GNU",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ericyangpan/markrs.git"
+    "url": "git+https://github.com/ericyangpan/markast.git"
   },
   "publishConfig": {
     "access": "public"
@@ -17,6 +17,6 @@
     "x64"
   ],
   "files": [
-    "bin/markrs"
+    "bin/markast"
   ]
 }

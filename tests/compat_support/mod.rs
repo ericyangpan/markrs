@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use markrs::RenderOptions;
+use markast::RenderOptions;
 use regex::Regex;
 use serde::Deserialize;
 use walkdir::WalkDir;
